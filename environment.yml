@@ -1,0 +1,4 @@
+name: OpenAseMdao
+channels:
+  - conda-forge
+  - defaults
