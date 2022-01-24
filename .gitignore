@@ -1,3 +1,6 @@
 
-*.xml
 *.iml
+*.xml
+open_ase_mdao.egg-info/*
+*.pyc
+results/*

@@ -2,3 +2,21 @@ name: OpenAseMdao
 channels:
   - conda-forge
   - defaults
+dependencies:
+  - python=3.9
+  - pip
+  - matplotlib
+  - pandas
+  - pytest
+  - scipy
+  - seaborn
+  - ca-certificates
+  - numpy
+  - h5py
+  - plotly
+  - jupyter
+  - ipywidgets
+  - pip:
+      - openmdao
+      - pyxdsm
+      - casadi
