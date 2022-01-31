@@ -3,12 +3,12 @@
 from setuptools import setup
 
 setup(
-    name="open_ase_mdao",
+    name="openasemdao",
     version="0.1",
     description="Aero-servo-elastic Multi-disciplinary design optimization",
     author=["Darshan Sarojini", "David Solano"],
     author_email=["darshan.sheshgiri@gmail.com", "hd.solano@gmail.com"],
-    packages=["open_ase_mdao"],
+    packages=["openasemdao"],
     install_requires=[
         'h5py',
         'numpy',
