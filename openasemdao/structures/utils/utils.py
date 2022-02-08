@@ -96,7 +96,7 @@ def centeroidnp(arr):
     return sum_x/length, sum_y/length
 
 
-def angle_calc(angles, r_vec, sequence=np.array([1, 3, 2])):
+def angle_calc(angles, r_vec, sequence):
     twist = 0
     sweep = np.deg2rad(angles[0])
     dihedral = np.deg2rad(angles[1])
@@ -109,24 +109,30 @@ def angle_calc(angles, r_vec, sequence=np.array([1, 3, 2])):
     return err
 
 
-def calculate_th0(r0):
+def calculate_th0(r0, seq):
     """
     r0 is given such that the beam axis nodes are along the y axis
     :param r0: nX3 numpy array
+    :param seq: 3x1 numpy array
     :return:
+
+    Parameters
+    ----------
+    r0
+    seq
     """
-    n = r0.shape[0]
-    th0 = np.empty([n, 3])
-    seq= np.array([1, 3, 2])
+    n = r0.shape[1]
+    th0 = np.empty([3, n])
+
     for i in range(n):
         # start with a guess for the angles
         sweep = 25
         dihedral = 3
         if i < n-1:
             r_reference = np.array([
-                [r0[i, 0], r0[i + 1, 0]],
-                [r0[i, 1], r0[i + 1, 1]],
-                [r0[i, 2], r0[i + 1, 2]]
+                [r0[0, i], r0[0, i + 1]],
+                [r0[1, i], r0[1, i + 1]],
+                [r0[2, i], r0[2, i + 1]]
             ]
             )
             r_vec = r_reference[:, 1] - r_reference[:, 0]
@@ -137,14 +143,14 @@ def calculate_th0(r0):
                          method='BFGS',
                          options={'disp': False})
 
-            th0[i, 0] = np.deg2rad(x.x[1])
-            if np.abs(th0[i, 0]) < 1e-5:
-                th0[i, 0] = 0.
-            th0[i, 1] = 0.
-            th0[i, 2] = -np.deg2rad(x.x[0])
-            if np.abs(th0[i, 2]) < 1e-5:
-                th0[i, 2] = 0.
+            th0[0, i] = np.deg2rad(x.x[1])
+            if np.abs(th0[0, i]) < 1e-5:
+                th0[0, i] = 0.
+            th0[1, i] = 0.
+            th0[2, i] = -np.deg2rad(x.x[0])
+            if np.abs(th0[2, i]) < 1e-5:
+                th0[2, i] = 0.
         else:
             # Inherit angle from previous section
-            th0[i, :] = th0[i - 1, :]
+            th0[:, i] = th0[:, i - 1]
     return th0
