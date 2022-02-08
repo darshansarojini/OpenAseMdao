@@ -20,19 +20,19 @@ class BeamDefinition:
         beam_component.add_output("orientation", val=self.orientation)
 
         # Parameters with units
-        beam_component.add_output("points", val=self.beam_points.magnitude, units="meter")
-        beam_component.add_output("E", val=self.E.magnitude, units=self.E.units)
-        beam_component.add_output("G", val=self.G.magnitude, units=self.G.units)
-        beam_component.add_output("rho", val=self.rho.magnitude, units=self.rho.units)
+        beam_component.add_output("points", val=self.beam_points.magnitude, units="m")
+        beam_component.add_output("E", val=self.E.magnitude, units="N/m**2")
+        beam_component.add_output("G", val=self.G.magnitude, units="N/m**2")
+        beam_component.add_output("rho", val=self.rho.magnitude, units="kg/m**3")
 
         self.component = beam_component
 
 
 class PointLoadDefinition:
-    def __init__(self, name, eta, vector_force=np.array([0.0, 0.0, 0.0]) * ureg['newton'],
-                 vector_moment=np.array([0.0, 0.0, 0.0]) * ureg['newton*meter']):
+    def __init__(self, name, eta, vector_force,
+                 vector_moment):
         # To provide vector load to the constructor WITH units please use the following format:
-        # F = np.array([1000,0,30000]) * ureg['newton']
+        # F = Q_(np.array([0 0 1000], 'newton'))
 
         self.load_label = name
         self.eta = eta
@@ -44,8 +44,8 @@ class PointLoadDefinition:
         # Unit-less parameters
         load_component.add_output("eta", val=self.eta)
         # Parameters with units
-        load_component.add_output("point_force", val=self.vector_force.magnitude, units=self.vector_force.units)
-        load_component.add_output("point_moment", val=self.vector_moment.magnitude, units=self.vector_moment.units)
+        load_component.add_output("point_force", val=self.vector_force.magnitude, units="N")
+        load_component.add_output("point_moment", val=self.vector_moment.magnitude, units="N*m")
 
         self.component = load_component
 
