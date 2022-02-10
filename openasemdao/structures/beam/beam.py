@@ -1,5 +1,4 @@
 from openmdao.core.explicitcomponent import ExplicitComponent
-from openmdao.core import group
 import openmdao.api as om
 from abc import ABC, abstractmethod
 from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
@@ -14,10 +13,19 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
     """
 
     def initialize(self):
+        self.options.declare('name', types=str)
         self.options.declare("beam_definition", default=None)
         self.options.declare('num_divisions', types=int)
         self.options.declare("applied_loads", default=[])
         self.options.declare("joints", default=[])
+        self.options.declare('beam_type', types=str)
+        self.options.declare('beam_bc', types=str)
+        self.options.declare('E', types=float)
+        self.options.declare('rho', types=float)
+        self.options.declare('G', types=float)
+        self.options.declare('sigmaY', types=float)
+        self.options.declare('num_timesteps', types=int)
+        self.options.declare('rho_KS', types=float)
 
         # Beam axis node locations
         self.options.declare('r0')
@@ -54,7 +62,13 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
 
         # Define basic beam parameters from containers:
         self.options["seq"] = beam_definition.orientation
-
+        self.options['beam_bc'] = beam_definition.beam_bc
+        self.options['name'] = beam_definition.beam_identifier
+        self.options['E'] = beam_definition.E.magnitude
+        self.options['G'] = beam_definition.G.magnitude
+        self.options['rho'] = beam_definition.rho.magnitude
+        self.options['sigmaY'] = beam_definition.sigmaY.magnitude
+        self.options['rho_KS'] = beam_definition.rho_KS
         # Read sequence of points within the beam
 
         initial_points = beam_definition.beam_points.magnitude
@@ -62,10 +76,12 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
 
         # Get basic span value:
 
-        if self.options["seq"] == np.array([3, 1, 2]):  # Fuselage beam
+        if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
             span = initial_points[0, -1] - initial_points[0, 0]
-        if self.options["seq"] == np.array([1, 3, 2]):  # Wing beam
+            self.options['beam_type'] = 'Fuselage'
+        if np.array_equal(self.options["seq"], np.array([1, 3, 2])):  # Wing beam
             span = initial_points[1, -1] - initial_points[1, 0]
+            self.options['beam_type'] = 'Wing'
 
         recorded_load_points = []
 
@@ -82,17 +98,19 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                     last_slice = np.copy(initial_points[:, -1])
                     initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))
                     # Finally add the load subsystem to the beam:
-                    self.add_subsystem(a_load.load_label, a_load.component)
+                    # self.add_subsystem(a_load.load_label, a_load.component)
                     continue
-                for i in range(0, initial_points.shape[1]):
-                    if self.options["seq"] == np.array([3, 1, 2]):  # Fuselage beam
+                for i in range(0, initial_points.shape[1]-1):
+                    if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
                         current_span = initial_points[0, i]
+                        next_span = initial_points[0, i+1]
                     else:  # Wing beam
                         current_span = initial_points[1, i]
-                    if not found_lower_point and (load_location >= current_span):
+                        next_span = initial_points[1, i + 1]
+                    if not found_lower_point and (load_location >= current_span and load_location <= next_span):
                         found_lower_point = True
                         load_point = np.zeros(3)
-                        if self.options["seq"] == np.array([3, 1, 2]):  # Fuselage beam
+                        if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
                             load_point[0] = load_location
                             span_percentage = (load_location - current_span) / (
                                     initial_points[0, i + 1] - initial_points[0, i])
@@ -115,7 +133,7 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                         if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
                 # Finally add the load subsystem to the beam:
-                self.add_subsystem(a_load.load_label, a_load.component)
+                # self.add_subsystem(a_load.load_label, a_load.component)
         # Then add the points of the joints
         if len(joints) > 0:
             for a_joint in joints:
@@ -131,8 +149,6 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                 for a_load in applied_loads:
                     if a_load.eta == joint_eta:
                         point_exists = True
-                        # Finally add the load subsystem to the beam:
-                        self.add_subsystem(a_joint.joint_label, a_joint.component)
                         break
                 if point_exists:
                     break
@@ -148,14 +164,16 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                         initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))
                         continue
                     for i in range(0, initial_points.shape[1]):
-                        if self.options["seq"] == np.array([3, 1, 2]):  # Fuselage beam
+                        if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
                             current_span = initial_points[0, i]
+                            next_span = initial_points[0, i + 1]
                         else:  # Wing beam
                             current_span = initial_points[1, i]
-                        if not found_lower_point and (joint_location >= current_span):
+                            next_span = initial_points[1, i + 1]
+                        if not found_lower_point and (joint_location >= current_span and joint_location <= next_span):
                             found_lower_point = True
                             load_point = np.zeros(3)
-                            if self.options["seq"] == np.array([3, 1, 2]):  # Fuselage beam
+                            if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
                                 load_point[0] = joint_location
                                 span_percentage = (joint_location - current_span) / (
                                         initial_points[0, i + 1] - initial_points[0, i])
@@ -177,8 +195,6 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
                             if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                                 initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
-                    # Finally add the load subsystem to the beam:
-                    self.add_subsystem(a_joint.joint_label, a_joint.component)
         self.options["r0"] = initial_points  # Storing the augmented point structure
         self.options['num_divisions'] = initial_points.shape[1]
         # Calculate th0
@@ -372,9 +388,9 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         super().setup()
 
         # Design variables for this beam
-        self.add_input('cs', shape=2 * self.options["r0"].shape[0])
+        self.add_input('cs', shape=2 * self.options["r0"].shape[1])
         # Outputs
-        self.add_output('cs_o', shape=2 * self.options["r0"].shape[0])
+        self.add_output('cs_o', shape=2 * self.options["r0"].shape[1])
         self.add_output('constraint', shape=1)
         self.add_output('mass', shape=1)
         # Create the symbolic function relating inputs and outputs
@@ -419,12 +435,15 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             EIzz[i] = self.options['E'] * (1 / 12) * (w[i] ** 3 * h[i])
             EIxz[i] = 0
             J = (w[i] * h[i] ** 3) * (2 / 9) * (1 / (1 + (h[i] / w[i]) ** 2))
-            GJ[i] = (self.options['E'] / (2 * (1 + self.options['nu']))) * J
+            GJ[i] = self.options['G'] * J
+
+            # GJ[i] = (self.options['E'] / (2 * (1 + self.options['nu']))) * J
+
         # endregion
 
         # region Axial and Shear Stiffness
-        GKn = (self.options['E'] / (2 * (1 + self.options['nu']))) / 1.2 * np.ones(n)
-        GKc = (self.options['E'] / (2 * (1 + self.options['nu']))) / 1.2 * np.ones(n)
+        GKn = (self.options['G']) / 1.2 * np.ones(n)
+        GKc = (self.options['G']) / 1.2 * np.ones(n)
         A = SX.sym('A', n)
         EA = SX.sym('EA', n)
         for i in range(n):

@@ -17,7 +17,6 @@ setup(
         'sympy',
         'pandas',
         'plotly',
-        'openmdao',
-        'openaerostruct'
+        'openmdao'
     ],
 )

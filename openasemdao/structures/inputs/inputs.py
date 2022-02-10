@@ -3,7 +3,7 @@ from pint import UnitRegistry as ureg
 import numpy as np
 
 class BeamDefinition:
-    def __init__(self, identifier, points, orientation, E, G, rho):
+    def __init__(self, identifier, points, orientation, E, G, rho, sigmaY, rho_KS=70.0, bc='Cantilever'):
         # To provide parameters to the constructor WITH units please use the following format:
         # E = Q_(E_val, 'pascal') -> beam1 = inputs.BeamDefinition(...,...,E,...)
 
@@ -13,7 +13,9 @@ class BeamDefinition:
         self.G = G  # shear modulus of the material in the beam
         self.rho = rho  # material's density of the beam
         self.orientation = orientation  # This defines whether the beam is a fuselage beam or a wing beam
-
+        self.beam_bc = bc     # Only implemented system for now
+        self.sigmaY = sigmaY
+        self.rho_KS = rho_KS
         beam_component = om.IndepVarComp(name=identifier)
 
         # Parameters with no units

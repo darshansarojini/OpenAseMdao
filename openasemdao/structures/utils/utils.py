@@ -2,14 +2,14 @@ from casadi import *
 from scipy.optimize import minimize
 
 def CalcNodalT(th, seq, n):
-    assert th.shape[0] == n
+    assert th.shape[1] == n
     T = SX.sym('T', 3, 3, n)
     Ta = SX.sym('Ta', 3, 3, n - 1)
     R = SX.sym('R', 3, 3, 3)
     for i in range(0, n):
-        a1 = th[i, 0]
-        a2 = th[i, 1]
-        a3 = th[i, 2]
+        a1 = th[0, i]
+        a2 = th[1, i]
+        a3 = th[2, i]
         # rotation tensor for "phi" rotation (angle a1)
         R[0][0, 0] = 1
         R[0][0, 1] = 0
@@ -136,21 +136,38 @@ def calculate_th0(r0, seq):
             ]
             )
             r_vec = r_reference[:, 1] - r_reference[:, 0]
-
-            x = minimize(fun=angle_calc,
-                         x0=np.array([sweep, dihedral]),
-                         args=(r_vec, seq),
-                         method='BFGS',
-                         options={'disp': False})
-
-            th0[0, i] = np.deg2rad(x.x[1])
-            if np.abs(th0[0, i]) < 1e-5:
-                th0[0, i] = 0.
-            th0[1, i] = 0.
-            th0[2, i] = -np.deg2rad(x.x[0])
-            if np.abs(th0[2, i]) < 1e-5:
-                th0[2, i] = 0.
+            if np.linalg.norm(np.array(r_vec)) > 0.0:
+                x = minimize(fun=angle_calc,
+                             x0=np.array([sweep, dihedral]),
+                             args=(r_vec, seq),
+                             method='BFGS',
+                             options={'disp': False})
+                th0[0, i] = np.deg2rad(x.x[1])
+                if np.abs(th0[0, i]) < 1e-5:
+                    th0[0, i] = 0.
+                th0[1, i] = 0.
+                th0[2, i] = -np.deg2rad(x.x[0])
+                if np.abs(th0[2, i]) < 1e-5:
+                    th0[2, i] = 0.
+            else:
+                if i > 0:
+                    # Inherit angle from previous section
+                    th0[:, i] = th0[:, i - 1]
+                else:
+                    th0[:, i] = np.array([0.0, 0.0, 0.0])
         else:
             # Inherit angle from previous section
             th0[:, i] = th0[:, i - 1]
     return th0
+
+# function to get unique values
+def unique(list1):
+    # initialize a null list
+    unique_list = []
+
+    # traverse for all elements
+    for x in list1:
+        # check if exists in unique_list or not
+        if x not in unique_list:
+            unique_list.append(x)
+    return unique_list
