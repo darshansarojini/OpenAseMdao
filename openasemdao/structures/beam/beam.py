@@ -5,7 +5,7 @@ from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
 from casadi import *
 
 
-class SymbolicBeam(ABC, om.ExplicitComponent):
+class SymbolicBeam(ABC, om.Group):
     """
         Group that contains the symbolic beam functions that will be used for the structure. It will include
         the definition of the different beam constants, as well as the proper point distribution based on the joints
@@ -98,7 +98,7 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                     last_slice = np.copy(initial_points[:, -1])
                     initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))
                     # Finally add the load subsystem to the beam:
-                    # self.add_subsystem(a_load.load_label, a_load.component)
+                    self.add_subsystem(a_load.load_label, a_load.component)
                     continue
                 for i in range(0, initial_points.shape[1]-1):
                     if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
@@ -133,7 +133,7 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
                         if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
                 # Finally add the load subsystem to the beam:
-                # self.add_subsystem(a_load.load_label, a_load.component)
+                self.add_subsystem(a_load.load_label, a_load.component)
         # Then add the points of the joints
         if len(joints) > 0:
             for a_joint in joints:
@@ -277,7 +277,6 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
             D[i][2, 1] = c_ea[0]
             D[i][2, 2] = 0
         self.symbolic_expressions['D'] = D
-        self.add_output('D', shape=(self.options['num_divisions'], 3, 3))
 
         oneover = SX.sym('oneover', 3, 3, n)
         for i in range(n):
@@ -291,7 +290,6 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
             oneover[i][2, 1] = 0
             oneover[i][2, 2] = 1 / GKn[i]
         self.symbolic_expressions['oneover'] = oneover
-        self.add_output('oneover', shape=(self.options['num_divisions'], 3, 3))
 
         i_matrix = SX.sym('i_matrix', 3, 3, n - 1)
         for i in range(n - 1):
@@ -305,9 +303,7 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
             i_matrix[i][2, 1] = 0
             i_matrix[i][2, 2] = mu[i]
         self.symbolic_expressions['mu'] = mu
-        self.add_output('mu', shape=self.options['num_divisions'] - 1)
         self.symbolic_expressions['i_matrix'] = i_matrix
-        self.add_output('i_matrix', shape=(self.options['num_divisions'] - 1, 3, 3))
 
         delta_r_CG_tilde = SX.sym('delta_r_CG_tilde', 3, 3, n - 1)
         for i in range(self.options['num_divisions'] - 1):
@@ -322,7 +318,6 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
             delta_r_CG_tilde[i][2, 1] = drCG[0]
             delta_r_CG_tilde[i][2, 2] = 0
         self.symbolic_expressions['delta_r_CG_tilde'] = delta_r_CG_tilde
-        self.add_output('delta_r_CG_tilde', shape=(self.options['num_divisions'] - 1, 3, 3))
 
         E = SX.sym('E', 3, 3, n)
         Einv = SX.sym('Einv', 3, 3, n)
@@ -360,9 +355,6 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
             Einv[i] = inv(E[i])
         self.symbolic_expressions['Einv'] = Einv
         self.symbolic_expressions['E'] = E
-        self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
-        self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
-        self.add_output('EA', shape=self.options['num_divisions'])
 
         # region Loads
         self.symbolics['forces_dist'] = SX.sym('forces_dist', 3, n - 1)
@@ -378,7 +370,77 @@ class SymbolicBeam(ABC, om.ExplicitComponent):
         return
 
 
+class BeamInterface(om.ExplicitComponent):
+    def initialize(self):
+        self.options.declare('name', types=str)
+        self.options.declare('num_divisions', types=int)
+        self.options.declare('num_cs_variables', types=int)
+        self.options.declare('symbolic_parent')
+
+        self.symbolic_functions = {}
+
+    def setup(self):
+        self.symbolic_functions = self.options['symbolic_parent']
+        self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0]+1
+
+        # Traditional input outputs:
+        self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
+        self.add_output('cs_o', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
+        self.add_output('constraint', shape=1)
+        self.add_output('mass', shape=1)
+
+        # Symbolic numerical channels:
+        self.add_output('D', shape=(self.options['num_divisions'], 3, 3))
+        self.add_output('oneover', shape=(self.options['num_divisions'], 3, 3))
+        self.add_output('mu', shape=self.options['num_divisions'] - 1)
+        self.add_output('i_matrix', shape=(self.options['num_divisions'] - 1, 3, 3))
+        self.add_output('delta_r_CG_tilde', shape=(self.options['num_divisions'] - 1, 3, 3))
+        self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
+        self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
+        self.add_output('EA', shape=self.options['num_divisions'])
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        cs_num = inputs['cs']
+
+        outputs['D'] = np.zeros([self.options['num_divisions'], 3, 3])
+        outputs['Einv'] = np.zeros([self.options['num_divisions'], 3, 3])
+        outputs['oneover'] = np.zeros([self.options['num_divisions'], 3, 3])
+        outputs['i_matrix'] = np.zeros([self.options['num_divisions'] - 1, 3, 3])
+        outputs['mu'] = np.zeros(self.options['num_divisions'] - 1)
+
+        outputs['cs_o'] = cs_num
+
+        D_num = self.symbolic_functions['D'](cs_num)
+        Einv_num = self.symbolic_functions['Einv'](cs_num)
+        oneover_num = self.symbolic_functions['oneover'](cs_num)
+        mu_num = self.symbolic_functions['mu'](cs_num)
+        i_matrix_num = self.symbolic_functions['i_matrix'](cs_num)
+
+        for i in range(self.options['num_divisions']):
+            if i < self.options['num_divisions'] - 1:  # Both nodal and element quantities
+                outputs['D'][i] = D_num[i].full()
+                outputs['Einv'][i] = Einv_num[i].full()
+                outputs['oneover'][i] = oneover_num[i].full()
+                outputs['mu'][i] = mu_num[i].full()
+                outputs['i_matrix'][i] = i_matrix_num[i].full()
+            else:  # Only nodal quantities
+                outputs['D'][i] = D_num[i].full()
+                outputs['Einv'][i] = Einv_num[i].full()
+                outputs['oneover'][i] = oneover_num[i].full()
+
+        total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
+        outputs['mass'] = total_mass
+
+
 class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
+    def initialize(self):
+        # Initializing superclass
+        super().initialize()
+        # Adding beam interface:
+        self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface',
+                                       symbolic_parent=self.symbolic_functions, num_cs_variables=2)
+
+
 
     def declare_additional_beam_inputs(self):
         return
@@ -387,22 +449,11 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         # Adding the different common beam properties
         super().setup()
 
-        # Design variables for this beam
-        self.add_input('cs', shape=2 * self.options["r0"].shape[1])
-        # Outputs
-        self.add_output('cs_o', shape=2 * self.options["r0"].shape[1])
-        self.add_output('constraint', shape=1)
-        self.add_output('mass', shape=1)
         # Create the symbolic function relating inputs and outputs
         self.create_symbolic_function()
-        # Add variables that allow to connect to other components
-        self.create_connecting_variables()
-        return
 
-    def setup_partials(self):
-        # Declare derivatives:
-        self.declare_partials('constraint', 'cs')
-        self.declare_partials('mass', 'cs')
+        self.add_subsystem('DoubleSymmetricBeamInterface', self.beam_interface)
+        return
 
     # region Common functions
 
@@ -483,61 +534,9 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.create_mass_function()
         return
 
-    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
-        cs_num = inputs['cs']
-
-        Mx_num = self.extract_slice_of_states_for_constraint_computation(inputs)
-
-        outputs['D'] = np.zeros([self.options['num_divisions'], 3, 3])
-        outputs['Einv'] = np.zeros([self.options['num_divisions'], 3, 3])
-        outputs['oneover'] = np.zeros([self.options['num_divisions'], 3, 3])
-        outputs['i_matrix'] = np.zeros([self.options['num_divisions'] - 1, 3, 3])
-        outputs['mu'] = np.zeros(self.options['num_divisions'] - 1)
-
-        outputs['cs_o'] = cs_num
-
-        D_num = self.symbolic_functions['D'](cs_num)
-        Einv_num = self.symbolic_functions['Einv'](cs_num)
-        oneover_num = self.symbolic_functions['oneover'](cs_num)
-        mu_num = self.symbolic_functions['mu'](cs_num)
-        i_matrix_num = self.symbolic_functions['i_matrix'](cs_num)
-        for i in range(self.options['num_divisions']):
-            if i < self.options['num_divisions'] - 1:  # Both nodal and element quantities
-                outputs['D'][i] = D_num[i].full()
-                outputs['Einv'][i] = Einv_num[i].full()
-                outputs['oneover'][i] = oneover_num[i].full()
-                outputs['mu'][i] = mu_num[i].full()
-                outputs['i_matrix'][i] = i_matrix_num[i].full()
-            else:  # Only nodal quantities
-                outputs['D'][i] = D_num[i].full()
-                outputs['Einv'][i] = Einv_num[i].full()
-                outputs['oneover'][i] = oneover_num[i].full()
-
-        # stress_num = self.symbolic_functions['stress'](h_num, w_num, Mx_num)
-        # stress_constraint_num = self.symbolic_functions['stress_constraint'](h_num, w_num, Mx_num)
-        # max_stress_constraint_num = self.symbolic_functions['max_stress_constraint'](h_num, w_num, Mx_num)
-        aggregated_stress_constraint_num = self.symbolic_functions['aggregated_stress_constraint'](cs_num, Mx_num)
-        outputs['constraint'] = aggregated_stress_constraint_num
-
-        total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
-        outputs['mass'] = total_mass
-        print('Constraint value:')
-        print(aggregated_stress_constraint_num)
-        print('Mass value:')
-        print(total_mass)
-        return
-
-    def compute_partials(self, inputs, partials, discrete_inputs=None):
-        cs_num = inputs['cs']
-        Mx_num = self.extract_slice_of_states_for_constraint_computation(inputs)
-
-        partials['constraint', 'cs'] = self.symbolic_functions['aggregated_stress_constraint_jac'](cs_num, Mx_num)
-        partials['mass', 'cs'] = self.symbolic_functions['mass_jac'](cs_num, self.options['delta_s0'])
-        pass
-
     # endregion
 
-    # region Unique to statics
+
     def extract_slice_of_states_for_constraint_computation(self, inputs):
         M_num = inputs['M']
         if self.options['beam_type'] == 'Fuselage':
@@ -546,10 +545,6 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             Mx_num = M_num[:, 0]
 
         return Mx_num
-
-    def create_connecting_variables(self):
-        self.add_input('M', shape=(self.options['num_divisions'], 3))
-        return
 
     def create_symbolic_states(self):
         n = self.options['num_divisions']
