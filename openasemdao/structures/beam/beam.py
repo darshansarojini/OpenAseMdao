@@ -27,7 +27,7 @@ class BeamInterface(om.ExplicitComponent):
         # Traditional input outputs:
         self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('cs_o', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
-        self.add_output('constraint', shape=len(self.constraints))
+        self.add_output('constraint', shape=len(self.options['constraint_group']))
         self.add_output('mass', shape=1)
 
         # Symbolic numerical channels:
@@ -119,6 +119,7 @@ class SymbolicBeam(ABC, om.Group):
         self.symbolic_expressions = {}
         self.symbolic_functions = {}
         self.symbolics = {}
+        self.constraints = []
         # Additional inputs at initialize
         self.declare_additional_beam_inputs()
         return
@@ -443,12 +444,6 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
     def initialize(self):
         # Initializing superclass
         super().initialize()
-        # Adding beam interface:
-        self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface',
-                                            symbolic_parent=self.symbolic_functions,
-                                            symbolic_variables=self.symbolics, num_cs_variables=2,
-                                            constraint_group=self.options["constraints"])
-
 
 
     def declare_additional_beam_inputs(self):
@@ -468,6 +463,12 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                 a_constraint.options["num_cs_variables"] = 2
                 a_constraint.options["symbolic_variables"] = self.symbolics
                 self.add_subsystem("Constraint"+a_constraint.options["name"], a_constraint)
+
+        # Generating beam interface:
+        self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface',
+                                            symbolic_parent=self.symbolic_functions,
+                                            symbolic_variables=self.symbolics, num_cs_variables=2,
+                                            constraint_group=self.constraints)
         # Adding beam interface
         self.add_subsystem('DoubleSymmetricBeamInterface', self.beam_interface)
         return
