@@ -12,11 +12,11 @@ class BeamInterface(om.ExplicitComponent):
         self.options.declare('num_cs_variables', types=int)
         self.options.declare('symbolic_parent')
         self.options.declare('symbolic_variables')
-        self.options.declare('constraint_group')
+        self.options.declare('constraint_group')  # Constraint Reference List for Beam
+        # Function per constraint:
+        # symbolic_stress_functions -> total_stress_constraint, total_stress_constraint_jac
         self.symbolic_functions = {}
         self.symbolic_variables = {}
-        self.constraints = []
-        self.constraint_derivatives = []
 
     def setup(self):
         self.symbolic_functions = self.options['symbolic_parent']
@@ -27,7 +27,6 @@ class BeamInterface(om.ExplicitComponent):
         # Traditional input outputs:
         self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('cs_o', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
-        self.add_output('constraint', shape=len(self.options['constraint_group']))
         self.add_output('mass', shape=1)
 
         # Symbolic numerical channels:

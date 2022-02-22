@@ -4,7 +4,7 @@ from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
 from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
 import math
-from openasemdao import Q_, ureg
+from openasemdao import Q_
 import numpy as np
 
 
@@ -75,6 +75,7 @@ def test_zero_element_generation():
     np.testing.assert_equal(augmented_predicted_size, augmented_actual_size)
 
     pass
+
 
 def test_th0_generation():
     model = om.Group()

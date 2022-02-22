@@ -1,20 +1,23 @@
 import openmdao.api as om
-from pint import UnitRegistry as ureg
-import numpy as np
+from openasemdao import Q_
 
 class BeamDefinition:
-    def __init__(self, identifier, points, orientation, E, G, rho, sigmaY, rho_KS=70.0, bc='Cantilever'):
+    def __init__(self, identifier,
+                 points: Q_, orientation,
+                 E: Q_, G: Q_, rho: Q_,
+                 sigmaY: Q_, rho_KS:float=70.0,
+                 bc:str='Cantilever'):
         # To provide parameters to the constructor WITH units please use the following format:
         # E = Q_(E_val, 'pascal') -> beam1 = inputs.BeamDefinition(...,...,E,...)
 
         self.beam_identifier = identifier  # UNIQUE identifier that allows reference by name when joints are used
-        self.beam_points = points  # array of points with units, 3 x number of nodes defining the shape
-        self.E = E  # young's modulus of the material in the beam
-        self.G = G  # shear modulus of the material in the beam
-        self.rho = rho  # material's density of the beam
+        self.beam_points = points.to_base_units()  # array of points with units, 3 x number of nodes defining the shape
+        self.E = E.to_base_units()  # young's modulus of the material in the beam
+        self.G = G.to_base_units()  # shear modulus of the material in the beam
+        self.rho = rho.to_base_units()  # material's density of the beam
         self.orientation = orientation  # This defines whether the beam is a fuselage beam or a wing beam
         self.beam_bc = bc     # Only implemented system for now
-        self.sigmaY = sigmaY
+        self.sigmaY = sigmaY.to_base_units()
         self.rho_KS = rho_KS
         beam_component = om.IndepVarComp(name=identifier)
 

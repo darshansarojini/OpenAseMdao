@@ -16,6 +16,12 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
         self.symbolic_stress_functions['total_stress_constraint'] = {}
         self.symbolic_stress_functions['total_stress_constraint_jac'] = {}
 
+        # Constraint transmission channels (example):
+        # if len(self.options['constraint_group']) > 0:
+        #     num_outputs = 0
+        #     for a_constraint in self.options['constraint_group']:
+        #         num_outputs += max(a_constraint.symbolic_stress_functions['total_stress_constraint'].size_out(0))
+
     def setup(self):
         self.beam_symbolics = self.options['symbolic_variables']
 
@@ -24,7 +30,7 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
         stress = self.beam_symbolics['sigma'] # Symbolic expression denoting the stress within the beam
 
         driving_parameters = self.beam_symbolics[
-            'driving_parameters']  # Row vector symbolic parameters (appart from cs variables)
+            'driving_parameters']  # Row vector symbolic parameters (apart from cs variables)
                                    # that drive the stress function: e.g. sigma = f(Mx, corner point symbolics)
 
         stress_constraint = stress / self.options['sigmaY'] - 1
