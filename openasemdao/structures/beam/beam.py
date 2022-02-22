@@ -25,6 +25,7 @@ class BeamInterface(om.ExplicitComponent):
         self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0]+1
 
         # Traditional input outputs:
+        self.add_input('x', shape=18*self.options['num_divisions'])
         self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('cs_o', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('mass', shape=1)
@@ -38,6 +39,7 @@ class BeamInterface(om.ExplicitComponent):
         self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('EA', shape=self.options['num_divisions'])
+        self.add_output('sigma', shape=max(self.options['symbolic_parent']['sigma'].size_out(0)))
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         cs_num = inputs['cs']
@@ -69,7 +71,10 @@ class BeamInterface(om.ExplicitComponent):
                 outputs['oneover'][i] = oneover_num[i].full()
 
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
+        sigma = self.symbolic_functions['sigma'](cs_num, inputs['x'])
+
         outputs['mass'] = total_mass
+        outputs['sigma'] = sigma.full()
 
 class SymbolicBeam(ABC, om.Group):
     """
@@ -586,8 +591,10 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             stress[i] = Mx[i] / S1[i]
 
         self.symbolics['sigma'] = stress
-        self.symbolics['driving_parameters'] = Mx
+        self.symbolics['driving_parameters'] = self.symbolics['x']
 
+        self.symbolic_functions['sigma'] = Function(self.options['name'] + "sigma", [cs, self.symbolics['x']],
+                                                   [stress])
         return
 
     def create_mass_function(self):
