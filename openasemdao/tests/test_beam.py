@@ -2,6 +2,7 @@ from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentati
 from openasemdao.structures.inputs.inputs import BeamDefinition, PointLoadDefinition, JointDefinition
 from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
+from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
 import math
 from openasemdao import Q_, ureg
 import numpy as np
@@ -55,7 +56,10 @@ def test_zero_element_generation():
 
     num_zero_elements = len(unique(etas))
 
-    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints)
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+
+    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints, constraints=[str_constraint])
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
 
@@ -103,7 +107,10 @@ def test_th0_generation():
     rect_beam = BeamDefinition('MainWing', beam_point_input, np.array([1, 3, 2]), E=Q_(70e9, 'pascal'),
                                G=Q_(30e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'))
 
-    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=[], joints=[])
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+
+    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=[], joints=[], constraints=[str_constraint])
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
 
