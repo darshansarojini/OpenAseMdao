@@ -8,6 +8,7 @@ from casadi import *
 class BeamInterface(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('name', types=str)
+        self.options.declare('delta_s0')
         self.options.declare('num_divisions', types=int)
         self.options.declare('num_cs_variables', types=int)
         self.options.declare('symbolic_parent')
@@ -73,8 +74,9 @@ class BeamInterface(om.ExplicitComponent):
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
         sigma = self.symbolic_functions['sigma'](cs_num, inputs['x'])
 
-        outputs['mass'] = total_mass
+        outputs['mass'] = total_mass.full()
         outputs['sigma'] = sigma.full()
+        pass
 
 class SymbolicBeam(ABC, om.Group):
     """
@@ -469,7 +471,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                 self.add_subsystem("Constraint"+a_constraint.options["name"], a_constraint)
 
         # Generating beam interface:
-        self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface',
+        self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
                                             symbolic_parent=self.symbolic_functions,
                                             symbolic_variables=self.symbolics, num_cs_variables=2,
                                             constraint_group=self.constraints)

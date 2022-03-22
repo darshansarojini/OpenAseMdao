@@ -74,8 +74,6 @@ def test_zero_element_generation():
 
     np.testing.assert_equal(augmented_predicted_size, augmented_actual_size)
 
-    pass
-
 
 def test_th0_generation():
     model = om.Group()
@@ -142,3 +140,57 @@ def test_th0_generation():
                    -0.430438954590719, -0.430438954590719]]
 
     np.testing.assert_almost_equal(th0, th0_actual, decimal=2)
+
+
+def test_stress_computation():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 10
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    beam_points[1, :] = np.linspace(0, 15, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+    rect_beam = BeamDefinition('MainWing', beam_point_input, np.array([1, 3, 2]), E=Q_(70e9, 'pascal'),
+                               G=Q_(30e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'))
+
+    # Test loads for the geometry
+    loads = []
+
+    # Test joints for the geometry
+    joints = []
+
+
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+
+    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints, constraints=[str_constraint])
+
+    model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    prob = om.Problem(model)
+    prob.setup()
+
+    # Test the actual result of the solution:
+    r0 = sample_beam.options['r0']
+    th0 = sample_beam.options['th0']
+    F = np.zeros((3, n_sections_before_joints_loads))
+
+    M = np.zeros((3, n_sections_before_joints_loads))
+    M[0, :] = np.linspace(1000000, 0, 10) # Some triangular moment
+
+    u = np.zeros((3, n_sections_before_joints_loads))
+    omega = np.zeros((3, n_sections_before_joints_loads))
+
+    x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
+
+    x_eval = np.reshape(x_eval,18*n_sections_before_joints_loads)
+
+    h = 0.5*np.ones((1, n_sections_before_joints_loads))
+    w = 3*np.ones((1, n_sections_before_joints_loads))
+
+    cs = np.hstack((h, w))
+
+    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
+
+    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', x_eval)
+
+    prob.run_model()
