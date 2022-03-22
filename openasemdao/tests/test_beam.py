@@ -172,9 +172,11 @@ def test_stress_computation():
     # Test the actual result of the solution:
     r0 = sample_beam.options['r0']
     th0 = sample_beam.options['th0']
+
     F = np.zeros((3, n_sections_before_joints_loads))
 
     M = np.zeros((3, n_sections_before_joints_loads))
+
     M[0, :] = np.linspace(1000000, 0, 10) # Some triangular moment
 
     u = np.zeros((3, n_sections_before_joints_loads))
@@ -182,7 +184,7 @@ def test_stress_computation():
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
-    x_eval = np.reshape(x_eval,18*n_sections_before_joints_loads)
+    x_eval = np.reshape(x_eval, 18*n_sections_before_joints_loads)
 
     h = 0.5*np.ones((1, n_sections_before_joints_loads))
     w = 3*np.ones((1, n_sections_before_joints_loads))
@@ -194,3 +196,18 @@ def test_stress_computation():
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', x_eval)
 
     prob.run_model()
+
+    # Compute expected value of stress:
+
+    I_xx = (w*h**3)/12
+
+    y = h/2
+
+    sigma_expected = M[0, :] * y / I_xx
+
+    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamInterface.sigma')
+
+    np.testing.assert_equal(sigma_actual, np.squeeze(sigma_expected))
+
+
+

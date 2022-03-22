@@ -23,10 +23,10 @@ class BeamInterface(om.ExplicitComponent):
         self.symbolic_functions = self.options['symbolic_parent']
         self.symbolic_variables = self.options['symbolic_variables']
 
-        self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0]+1
+        self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0] + 1
 
         # Traditional input outputs:
-        self.add_input('x', shape=18*self.options['num_divisions'])
+        self.add_input('x', shape=18 * self.options['num_divisions'])
         self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('cs_o', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('mass', shape=1)
@@ -72,11 +72,13 @@ class BeamInterface(om.ExplicitComponent):
                 outputs['oneover'][i] = oneover_num[i].full()
 
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
+
         sigma = self.symbolic_functions['sigma'](cs_num, inputs['x'])
 
         outputs['mass'] = total_mass.full()
         outputs['sigma'] = sigma.full()
         pass
+
 
 class SymbolicBeam(ABC, om.Group):
     """
@@ -176,10 +178,10 @@ class SymbolicBeam(ABC, om.Group):
                     # Finally add the load subsystem to the beam:
                     self.add_subsystem(a_load.load_label, a_load.component)
                     continue
-                for i in range(0, initial_points.shape[1]-1):
+                for i in range(0, initial_points.shape[1] - 1):
                     if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
                         current_span = initial_points[0, i]
-                        next_span = initial_points[0, i+1]
+                        next_span = initial_points[0, i + 1]
                     else:  # Wing beam
                         current_span = initial_points[1, i]
                         next_span = initial_points[1, i + 1]
@@ -446,11 +448,11 @@ class SymbolicBeam(ABC, om.Group):
     def declare_additional_beam_inputs(self):
         return
 
+
 class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
     def initialize(self):
         # Initializing superclass
         super().initialize()
-
 
     def declare_additional_beam_inputs(self):
         return
@@ -468,7 +470,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                 a_constraint.options["num_divisions"] = self.options["num_divisions"]
                 a_constraint.options["num_cs_variables"] = 2
                 a_constraint.options["symbolic_variables"] = self.symbolics
-                self.add_subsystem("Constraint"+a_constraint.options["name"], a_constraint)
+                self.add_subsystem("Constraint" + a_constraint.options["name"], a_constraint)
 
         # Generating beam interface:
         self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
@@ -479,13 +481,12 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.add_subsystem('DoubleSymmetricBeamInterface', self.beam_interface)
         return
 
-
     # region Common functions
 
     def create_symbolic_function(self):
         n = self.options['num_divisions']
         # Design Variables
-        cs = SX.sym(self.options['name']+'cs', 2 * n)
+        cs = SX.sym(self.options['name'] + 'cs', 2 * n)
         h = cs[0:n]
         w = cs[n:2 * n]
 
@@ -571,8 +572,6 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.symbolics['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, 1)
         self.symbolics['x_slice'] = self.symbolics['x']
         self.symbolics['xDot_slice'] = self.symbolics['xDot']
-        # Subset of state variables
-        self.symbolics['Mx'] = reshape(reshape(self.symbolics['x'], 18, n)[15, :], n, 1)
         return
 
     def create_local_stress_function(self):
@@ -581,7 +580,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         h = cs[0:n]
         w = cs[n:2 * n]
 
-        Mx = self.symbolics['Mx']
+        Mx = reshape(reshape(self.symbolics['x'], 18, n)[9, :], n, 1)
 
         Ixx = SX.sym(self.options['name'] + 'Ixx', n)
         S1 = SX.sym(self.options['name'] + 'S1', n)
@@ -596,7 +595,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.symbolics['driving_parameters'] = self.symbolics['x']
 
         self.symbolic_functions['sigma'] = Function(self.options['name'] + "sigma", [cs, self.symbolics['x']],
-                                                   [stress])
+                                                    [stress])
         return
 
     def create_mass_function(self):
