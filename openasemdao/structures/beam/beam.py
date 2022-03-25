@@ -6,22 +6,20 @@ from casadi import *
 
 
 class BeamInterface(om.ExplicitComponent):
+    # The purpose of this class is to serve as the numerical face of the Beam group, giving numerical
+    # outputs to all the different symbolic expressions defined within Beam, regardless of their type or
+    # number of variables.
     def initialize(self):
         self.options.declare('name', types=str)
         self.options.declare('delta_s0')
         self.options.declare('num_divisions', types=int)
         self.options.declare('num_cs_variables', types=int)
         self.options.declare('symbolic_parent')
-        self.options.declare('symbolic_variables')
-        self.options.declare('constraint_group')  # Constraint Reference List for Beam
         # Function per constraint:
-        # symbolic_stress_functions -> total_stress_constraint, total_stress_constraint_jac
         self.symbolic_functions = {}
-        self.symbolic_variables = {}
 
     def setup(self):
         self.symbolic_functions = self.options['symbolic_parent']
-        self.symbolic_variables = self.options['symbolic_variables']
 
         self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0] + 1
 
@@ -40,9 +38,11 @@ class BeamInterface(om.ExplicitComponent):
         self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('EA', shape=self.options['num_divisions'])
-        self.add_output('sigma', shape=max(self.options['symbolic_parent']['sigma'].size_out(0)))
+        self.add_output('x_out', shape=18 * self.options['num_divisions'])
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        outputs['x_out'] = inputs['x']
+
         cs_num = inputs['cs']
 
         outputs['D'] = np.zeros([self.options['num_divisions'], 3, 3])
@@ -72,11 +72,7 @@ class BeamInterface(om.ExplicitComponent):
                 outputs['oneover'][i] = oneover_num[i].full()
 
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
-
-        sigma = self.symbolic_functions['sigma'](cs_num, inputs['x'])
-
         outputs['mass'] = total_mass.full()
-        outputs['sigma'] = sigma.full()
         pass
 
 
@@ -465,17 +461,15 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.create_symbolic_function()
 
         # Adding constraints to beam
-        if len(self.constraints) > 0:
-            for a_constraint in self.constraints:
-                a_constraint.options["num_divisions"] = self.options["num_divisions"]
-                a_constraint.options["num_cs_variables"] = 2
-                a_constraint.options["symbolic_variables"] = self.symbolics
-                self.add_subsystem("Constraint" + a_constraint.options["name"], a_constraint)
+        # if len(self.constraints) > 0:
+        #     for a_constraint in self.constraints:
+        #         a_constraint.options["num_divisions"] = self.options["num_divisions"]
+        #         a_constraint.options["num_cs_variables"] = 2
+        #         self.add_subsystem("Constraint" + a_constraint.options["name"], a_constraint)
 
         # Generating beam interface:
         self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
-                                            symbolic_parent=self.symbolic_functions,
-                                            symbolic_variables=self.symbolics, num_cs_variables=2,
+                                            symbolic_parent=self.symbolic_functions, num_cs_variables=2,
                                             constraint_group=self.constraints)
         # Adding beam interface
         self.add_subsystem('DoubleSymmetricBeamInterface', self.beam_interface)

@@ -11,7 +11,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
         self.options.declare('symbolic_variables', types=dict)  # Where all the resultant cross-section symbolics come from beam parent
 
-        # Attempting an experimental way to store casadi expressions within the component
+        # Where helper and needed symbolic expressions (Einv) and values (x) are stored
         self.options.declare('symbolic_expressions', types=dict)
         self.options.declare('symbolic_stress_functions', types=dict)
 
@@ -27,10 +27,238 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # Setup all the nice goodies that make this thing work
         pass
 
+    def stress_formulae_rect(self, n, T, number_of_stress_points, cs, symb_stress_points, stress_rec_points):
+        """
+        If T = 0, we are looking at the slice
+        If T = 1, static analysis
+        If T > 1, dynamic analysis
+        """
+        h = cs[0:self.options['num_divisions']]
+        w = cs[self.options['num_divisions']:]
+
+        sol_x = SX.sym('x_sol', self.options['symbolic_variables']['x'].shape[0], T + 1)
+
+        # This makes possible to re-use the axial stress and torsional stress equations for both box and rect beam
+        t_top = h/2
+        t_bot = h/2
+        t_right = w/2
+        t_left = w/2
+
+        # region Internal Forces and Moments
+        Mc = SX.zeros(n, T + 1)
+        Ms = SX.zeros(n, T + 1)
+        Mn = SX.zeros(n, T + 1)
+        Fc = SX.zeros(n, T + 1)
+        Fs = SX.zeros(n, T + 1)
+        Fn = SX.zeros(n, T + 1)
+
+        T0, T0a = CalcNodalT(th=self.options['th0'], seq=self.options['seq'], n=n)
+        for i in range(n):
+            x_node_at_all_timesteps = sol_x[i * 18: (i + 1) * 18, :]
+            M_csn = SX.zeros(3, T + 1)
+            F_csn = SX.zeros(3, T + 1)
+            for j in range(T + 1):
+                M_csn[:, j] = mtimes(T0[i], x_node_at_all_timesteps[9:12, j])
+                F_csn[:, j] = mtimes(T0[i], x_node_at_all_timesteps[6:9, j])
+            Mc[i, :] = M_csn[0, :]
+            Ms[i, :] = M_csn[1, :]
+            Mn[i, :] = M_csn[2, :]
+
+            Fc[i, :] = F_csn[0, :]
+            Fs[i, :] = F_csn[1, :]
+            Fn[i, :] = F_csn[2, :]
+
+        sol_x = reshape(sol_x, sol_x.shape[0] * sol_x.shape[1], 1)
+        # endregion
+
+        # Torsion calculation on a solid cross-section follows Roark's formula for Stress:
+
+        # When w > h:
+        tau_torsion_w_slice = ((3 * Ms) / (w * h ** 2)) * (
+                    1 + 0.6095 * (h / w) + 0.8865 * (h / w) ** 2 - 1.8023 * (h / w) ** 3 + 0.91 * (h / w) ** 4)
+
+        # When h > w:
+        tau_torsion_h_slice = ((3 * Ms) / (h * w ** 2)) * (
+                    1 + 0.6095 * (w / h) + 0.8865 * (w / h) ** 2 - 1.8023 * (w / h) ** 3 + 0.91 * (w / h) ** 4)
+
+        # Sign convention to make sure torsion goes in the convention chosen in the csn axes:
+        sign = np.array([-1, 1, 1, -1])
+
+        tau_torsion_w = np.vstack((sign[0] * tau_torsion_w_slice, sign[1] * tau_torsion_w_slice,
+                                   sign[2] * tau_torsion_w_slice, sign[3] * tau_torsion_w_slice))
+
+        tau_torsion_h = np.vstack((sign[0] * tau_torsion_h_slice, sign[1] * tau_torsion_h_slice,
+                                   sign[2] * tau_torsion_h_slice, sign[3] * tau_torsion_h_slice))
+        if T == 0:
+            self.options['symbolic_expressions']['tau_torsion_slice_w'] = tau_torsion_w
+            self.options['symbolic_expressions']['tau_torsion_slice_h'] = tau_torsion_h
+        else:
+            self.options['symbolic_expressions']['tau_torsion_w'] = tau_torsion_w
+            self.options['symbolic_expressions']['tau_torsion_h'] = tau_torsion_h
+            self.options['symbolic_stress_functions']['tau_torsion_w'] = Function('tau_torsional_w',
+                                                                                [sol_x,
+                                                                                 cs],
+                                                                                [self.options['symbolic_expressions'][
+                                                                                     'tau_torsion_w']])
+            self.options['symbolic_stress_functions']['tau_torsion_h'] = Function('tau_torsional+h',
+                                                                                  [sol_x,
+                                                                                   cs],
+                                                                                  [self.options['symbolic_expressions'][
+                                                                                       'tau_torsion_h']])
+        # endregion
+
+        # region Transverse Shear
+        tau_max_c = 1.5*Fc/(h*w)
+        tau_max_n = 1.5 * Fn / (h * w)
+
+        self.options['symbolic_expressions']['tau_max_c_slice'] = tau_max_c
+        self.options['symbolic_expressions']['tau_max_n_slice'] = tau_max_n
+
+        if T == 0:
+            self.options['symbolic_expressions']['tau_shear_slice'] = np.vstack((tau_max_c,tau_max_n))
+            self.options['symbolic_stress_functions']['tau_shear_slice'] = Function('tau_shear_slice',
+                                                                                    [sol_x,
+                                                                                     cs],
+                                                                                    [self.options[
+                                                                                         'symbolic_expressions'][
+                                                                                         'tau_shear_slice']])
+        else:
+            self.options['symbolic_expressions']['tau_shear'] = np.vstack((tau_max_c, tau_max_n))
+            self.options['symbolic_stress_functions']['tau_shear'] = Function('tau_shear',
+                                                                              [sol_x,
+                                                                               cs],
+                                                                              [self.options['symbolic_expressions'][
+                                                                                   'tau_shear']])
+        # endregion
+
+        # region Axial Stress
+        # sigma_axial at a time step is
+        #   0:n is 1st point (top-left)
+        #   n+1:2n is 2nd point (top-right)
+        #   2n+1:3n is 3rd point (bottom-right)
+        #   3n+1:4n is 4th point (bottom-left)
+        sigma_axial = SX.sym('sigma_a', number_of_stress_points * n, T + 1)
+        for j in range(number_of_stress_points):
+            for i in range(n):
+                x1 = symb_stress_points[2 * j, i]
+                x3 = symb_stress_points[2 * j + 1, i]
+                EIcc = self.options['symbolic_expressions']['E'][i][0, 0]
+                EInn = self.options['symbolic_expressions']['E'][i][2, 2]
+                EA = self.options['symbolic_expressions']['EA'][i]
+                sigma_axial[j * n + i, :] = self.options['E'] * (Fs[i, :] / EA -
+                                                                 x3 * Mc[i, :] / (EIcc) +
+                                                                 x1 * Mn[i, :] / (EInn))
+                pass
+        if T == 0:
+            self.options['symbolic_expressions']['sigma_axial_slice'] = sigma_axial
+            self.options['symbolic_stress_functions']['sigma_axial_slice'] = Function('sigma_yy_slice',
+                                                                                      [sol_x,
+                                                                                       cs,
+                                                                                       symb_stress_points],
+                                                                                      [self.options[
+                                                                                           'symbolic_expressions'][
+                                                                                           'sigma_axial_slice']])
+        else:
+            self.options['symbolic_expressions']['sigma_axial'] = sigma_axial
+            self.options['symbolic_stress_functions']['sigma_axial'] = Function('sigma_yy',
+                                                                                [sol_x,
+                                                                                 cs,
+                                                                                 symb_stress_points],
+                                                                                [self.options['symbolic_expressions'][
+                                                                                     'sigma_axial']])
+        # endregion
+
+        # region von-Mises Stress
+        sigma = SX.sym('sigma', number_of_stress_points * n, T + 1)
+        for j in range(number_of_stress_points):
+            for i in range(n):
+                sign_1 = 1
+                sign_3 = 1
+                t_3_selected = t_top[i] / 2
+                t_1_selected = t_left[i] / 2
+                x1 = symb_stress_points[2 * j, i]
+                x3 = symb_stress_points[2 * j + 1, i]
+                if stress_rec_points[2 * j, i] < 0:
+                    sign_1 = -sign_1
+                    t_1_selected = t_right[i] / 2
+                if stress_rec_points[2 * j + 1, i] < 0:
+                    sign_3 = -sign_3
+                    t_3_selected = t_bot[i]
+                EIcc = self.options['symbolic_expressions']['E'][i][0, 0]
+                EInn = self.options['symbolic_expressions']['E'][i][2, 2]
+                EA = self.options['symbolic_expressions']['EA'][i]
+                sigma[j * n + i, :] = self.options['E'] * (Fs[i, :] / EA -
+                                                           (x3 - sign_3 * t_3_selected) * Mc[i, :] / (EIcc) +
+                                                           (x1 - sign_1 * t_1_selected) * Mn[i, :] / (EInn))
+
+        # tau_torsion_h, tau_torsion_w
+
+        sigma_vm_w = (sigma ** 2 + tau_torsion_w ** 2 - sigma * tau_torsion_w + 1e-15) ** 0.5
+
+        sigma_vm_h = (sigma ** 2 + tau_torsion_h ** 2 - sigma * tau_torsion_h + 1e-15) ** 0.5
+
+        if T == 0:
+            self.options['symbolic_expressions']['sigma_vm_slice_w'] = sigma_vm_w
+            self.options['symbolic_stress_functions']['sigma_vm_slice_w'] = Function('sigma_vm_slice_w',
+                                                                                   [sol_x,
+                                                                                    cs,
+                                                                                    symb_stress_points],
+                                                                                   [self.options[
+                                                                                        'symbolic_expressions'][
+                                                                                        'sigma_vm_slice_w']])
+            self.options['symbolic_expressions']['sigma_vm_slice_h'] = sigma_vm_h
+            self.options['symbolic_stress_functions']['sigma_vm_slice_h'] = Function('sigma_vm_slice_h',
+                                                                                     [sol_x,
+                                                                                      cs,
+                                                                                      symb_stress_points],
+                                                                                     [self.options[
+                                                                                          'symbolic_expressions'][
+                                                                                          'sigma_vm_slice_h']])
+        else:
+            self.options['symbolic_expressions']['sigma_vm_w'] = sigma_vm_w
+            self.options['symbolic_stress_functions']['sigma_vm_w'] = Function('sigma_vm_w',
+                                                                             [sol_x,
+                                                                              cs,
+                                                                              symb_stress_points],
+                                                                             [self.options['symbolic_expressions'][
+                                                                                  'sigma_vm_w']])
+            self.options['symbolic_expressions']['sigma_vm_h'] = sigma_vm_h
+            self.options['symbolic_stress_functions']['sigma_vm_h'] = Function('sigma_vm_h',
+                                                                               [sol_x,
+                                                                                cs,
+                                                                                symb_stress_points],
+                                                                               [self.options['symbolic_expressions'][
+                                                                                    'sigma_vm_h']])
+
+        sigma_w = horzcat(sigma_vm_w, sigma_axial)
+        sigma_h = horzcat(sigma_vm_h, sigma_axial)
+        if T == 0:
+            pass
+        else:
+            self.options['symbolic_expressions']['sigma_w'] = sigma_w
+            self.options['symbolic_stress_functions']['sigma_w'] = Function('sigma_w',
+                                                                          [sol_x,
+                                                                           cs,
+                                                                           symb_stress_points],
+                                                                          [self.options['symbolic_expressions'][
+                                                                               'sigma_w']])
+            self.options['symbolic_expressions']['sigma_h'] = sigma_h
+            self.options['symbolic_stress_functions']['sigma_h'] = Function('sigma_h',
+                                                                            [sol_x,
+                                                                             cs,
+                                                                             symb_stress_points],
+                                                                            [self.options['symbolic_expressions'][
+                                                                                 'sigma_h']])
+        # endregion
+
+        return sol_x
+
+
+
     def stress_formulae_box(self,
                         n, T,
                         number_of_stress_points,
-                        t_left, t_top, t_right, t_bot,
+                        cs,
                         symb_stress_points,
                         stress_rec_points):
         """
@@ -38,6 +266,11 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         If T = 1, static analysis
         If T > 1, dynamic analysis
         """
+        t_left = cs[0:self.options['num_divisions']]
+        t_top = cs[self.options['num_divisions']:2*self.options['num_divisions']]
+        t_right = cs[2*self.options['num_divisions']:3*self.options['num_divisions']]
+        t_bot = cs[3*self.options['num_divisions']:4*self.options['num_divisions']]
+
         sol_x = SX.sym('x_sol', self.options['symbolic_variables']['x'].shape[0], T + 1)
 
         # region Internal Forces and Moments
