@@ -9,15 +9,24 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # Make sure all the quantities necessary to make the system work are here
         self.options.declare('name', types=str)  # Just to tag the constraint in particular
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
-        self.options.declare('symbolic_variables', types=dict)  # Where all the resultant cross-section symbolics come from beam parent
+        self.options.declare('num_cs_variables', types=int)  # To account for different number of sectional variables
+        self.options.declare('symbolic_variables',
+                             types=dict)  # Where all the resultant cross-section symbolics come from beam parent
 
         # Where helper and needed symbolic expressions (Einv) and values (x) are stored
         self.options.declare('symbolic_expressions', types=dict)
         self.options.declare('symbolic_stress_functions', types=dict)
 
-        self.options.declare('axial_point_list')
-        self.options.declare('vm_point_list')
-        self.options.declare('shear_point_list')
+        self.options.declare('stress_rec_points')
+        self.options.declare('num_timesteps')
+
+        # Necessary Beam Characteristics
+        self.options.declare('r0')
+        self.options.declare('th0')
+        self.options.declare('seq')
+        self.options.declare('E')
+        self.options.declare('G')
+
 
         self.options['symbolic_variables'] = {}
         self.options['symbolic_expressions'] = {}
@@ -25,24 +34,72 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
     def setup(self):
         # Setup all the nice goodies that make this thing work
+        self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
+        self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
+        # Time to generate the stress formulas:
+        cs = self.options['symbolic_variables']['cs']
+        if (self.options['num_cs_variables'] == 2):  # Rectangular beam with 2 degrees of freedom per cross-section h w
+            self.options['stress_rec_points'] = np.zeros((self.options['symbolic_variables']['stress_rec_points'].shape[0], self.options['symbolic_variables']['stress_rec_points'].shape[1]))
+            self.add_input('stress_rec_points', shape=(self.options['symbolic_variables']['stress_rec_points'].shape[0], self.options['symbolic_variables']['stress_rec_points'].shape[1]))
+            self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
+            self.add_output('sigma', shape=(6*self.options['num_divisions'], self.options['num_timesteps']+1))
         pass
 
-    def stress_formulae_rect(self, n, T, number_of_stress_points, cs, symb_stress_points, stress_rec_points):
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        if (self.options['num_cs_variables'] == 2):
+            h = inputs['cs'][0:self.options['num_divisions']]
+            w = inputs['cs'][self.options['num_divisions']:2*self.options['num_divisions']]
+
+            if np.linalg.norm(h) < np.linalg.norm(w):
+                sigma = self.options['symbolic_stress_functions']['sigma_w'](inputs['x'],
+                                                                             inputs['cs'],
+                                                                             inputs['stress_rec_points'])
+            else:
+                sigma = self.options['symbolic_stress_functions']['sigma_h'](inputs['x'],
+                                                                             inputs['cs'],
+                                                                             inputs['stress_rec_points'])
+            outputs['sigma'] = sigma.full()
+
+    def stress_formulae_rect(self, n, T, cs):
         """
         If T = 0, we are looking at the slice
         If T = 1, static analysis
         If T > 1, dynamic analysis
         """
+        stress_rec_points = self.options['stress_rec_points']
+        assert stress_rec_points.shape[1] == n
+        assert int(stress_rec_points.shape[0] / 2) == 4, \
+            'Implementation right now assumes 4 points at the 4 corners of the box CS'
+        number_of_stress_points = int(stress_rec_points.shape[0] / 2)
+        """
+        The points must be ordered in the following format
+            1 ------------------------------------- 2
+              -                y                  -
+              -                |                  -
+              -                --> x              -
+              -                                   -
+              -                                   -
+            4 ------------------------------------- 3
+        """
+        # # Point 1
+        # assert (stress_rec_points[0, :] < 0).all()  # x coordinate must be negative
+        # assert (stress_rec_points[1, :] > 0).all()  # y coordinate must be positive
+        # # Point 2
+        # assert (stress_rec_points[2, :] > 0).all()  # x coordinate must be positive
+        # assert (stress_rec_points[3, :] > 0).all()  # y coordinate must be positive
+        # # Point 3
+        # assert (stress_rec_points[4, :] > 0).all()  # x coordinate must be positive
+        # assert (stress_rec_points[5, :] < 0).all()  # y coordinate must be negative
+        # # Point 4
+        # assert (stress_rec_points[6, :] < 0).all()  # x coordinate must be negative
+        # assert (stress_rec_points[7, :] < 0).all()  # y coordinate must be negative
+
+        symb_stress_points = SX.sym('stress_pts', stress_rec_points.shape[1], stress_rec_points.shape[0]).T
+
         h = cs[0:self.options['num_divisions']]
         w = cs[self.options['num_divisions']:]
 
-        sol_x = SX.sym('x_sol', self.options['symbolic_variables']['x'].shape[0], T + 1)
-
-        # This makes possible to re-use the axial stress and torsional stress equations for both box and rect beam
-        t_top = h/2
-        t_bot = h/2
-        t_right = w/2
-        t_left = w/2
+        sol_x = SX.sym('x_sol', 18 * self.options['num_divisions'], T + 1)
 
         # region Internal Forces and Moments
         Mc = SX.zeros(n, T + 1)
@@ -68,7 +125,6 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             Fs[i, :] = F_csn[1, :]
             Fn[i, :] = F_csn[2, :]
 
-        sol_x = reshape(sol_x, sol_x.shape[0] * sol_x.shape[1], 1)
         # endregion
 
         # Torsion calculation on a solid cross-section follows Roark's formula for Stress:
@@ -84,11 +140,11 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # Sign convention to make sure torsion goes in the convention chosen in the csn axes:
         sign = np.array([-1, 1, 1, -1])
 
-        tau_torsion_w = np.vstack((sign[0] * tau_torsion_w_slice, sign[1] * tau_torsion_w_slice,
-                                   sign[2] * tau_torsion_w_slice, sign[3] * tau_torsion_w_slice))
+        tau_torsion_w = vertcat(sign[0] * tau_torsion_w_slice, sign[1] * tau_torsion_w_slice,
+                                   sign[2] * tau_torsion_w_slice, sign[3] * tau_torsion_w_slice)
 
-        tau_torsion_h = np.vstack((sign[0] * tau_torsion_h_slice, sign[1] * tau_torsion_h_slice,
-                                   sign[2] * tau_torsion_h_slice, sign[3] * tau_torsion_h_slice))
+        tau_torsion_h = vertcat(sign[0] * tau_torsion_h_slice, sign[1] * tau_torsion_h_slice,
+                                   sign[2] * tau_torsion_h_slice, sign[3] * tau_torsion_h_slice)
         if T == 0:
             self.options['symbolic_expressions']['tau_torsion_slice_w'] = tau_torsion_w
             self.options['symbolic_expressions']['tau_torsion_slice_h'] = tau_torsion_h
@@ -100,7 +156,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                                                  cs],
                                                                                 [self.options['symbolic_expressions'][
                                                                                      'tau_torsion_w']])
-            self.options['symbolic_stress_functions']['tau_torsion_h'] = Function('tau_torsional+h',
+            self.options['symbolic_stress_functions']['tau_torsion_h'] = Function('tau_torsional_h',
                                                                                   [sol_x,
                                                                                    cs],
                                                                                   [self.options['symbolic_expressions'][
@@ -108,14 +164,14 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # endregion
 
         # region Transverse Shear
-        tau_max_c = 1.5*Fc/(h*w)
+        tau_max_c = 1.5 * Fc / (h * w)
         tau_max_n = 1.5 * Fn / (h * w)
 
         self.options['symbolic_expressions']['tau_max_c_slice'] = tau_max_c
         self.options['symbolic_expressions']['tau_max_n_slice'] = tau_max_n
 
         if T == 0:
-            self.options['symbolic_expressions']['tau_shear_slice'] = np.vstack((tau_max_c,tau_max_n))
+            self.options['symbolic_expressions']['tau_shear_slice'] = vertcat(tau_max_c, tau_max_n)
             self.options['symbolic_stress_functions']['tau_shear_slice'] = Function('tau_shear_slice',
                                                                                     [sol_x,
                                                                                      cs],
@@ -123,7 +179,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                                                          'symbolic_expressions'][
                                                                                          'tau_shear_slice']])
         else:
-            self.options['symbolic_expressions']['tau_shear'] = np.vstack((tau_max_c, tau_max_n))
+            self.options['symbolic_expressions']['tau_shear'] = vertcat(tau_max_c, tau_max_n)
             self.options['symbolic_stress_functions']['tau_shear'] = Function('tau_shear',
                                                                               [sol_x,
                                                                                cs],
@@ -142,9 +198,9 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             for i in range(n):
                 x1 = symb_stress_points[2 * j, i]
                 x3 = symb_stress_points[2 * j + 1, i]
-                EIcc = self.options['symbolic_expressions']['E'][i][0, 0]
-                EInn = self.options['symbolic_expressions']['E'][i][2, 2]
-                EA = self.options['symbolic_expressions']['EA'][i]
+                EIcc = self.options['symbolic_variables']['E'][i][0, 0]
+                EInn = self.options['symbolic_variables']['E'][i][2, 2]
+                EA = self.options['symbolic_variables']['EA'][i]
                 sigma_axial[j * n + i, :] = self.options['E'] * (Fs[i, :] / EA -
                                                                  x3 * Mc[i, :] / (EIcc) +
                                                                  x1 * Mn[i, :] / (EInn))
@@ -169,33 +225,11 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # endregion
 
         # region von-Mises Stress
-        sigma = SX.sym('sigma', number_of_stress_points * n, T + 1)
-        for j in range(number_of_stress_points):
-            for i in range(n):
-                sign_1 = 1
-                sign_3 = 1
-                t_3_selected = t_top[i] / 2
-                t_1_selected = t_left[i] / 2
-                x1 = symb_stress_points[2 * j, i]
-                x3 = symb_stress_points[2 * j + 1, i]
-                if stress_rec_points[2 * j, i] < 0:
-                    sign_1 = -sign_1
-                    t_1_selected = t_right[i] / 2
-                if stress_rec_points[2 * j + 1, i] < 0:
-                    sign_3 = -sign_3
-                    t_3_selected = t_bot[i]
-                EIcc = self.options['symbolic_expressions']['E'][i][0, 0]
-                EInn = self.options['symbolic_expressions']['E'][i][2, 2]
-                EA = self.options['symbolic_expressions']['EA'][i]
-                sigma[j * n + i, :] = self.options['E'] * (Fs[i, :] / EA -
-                                                           (x3 - sign_3 * t_3_selected) * Mc[i, :] / (EIcc) +
-                                                           (x1 - sign_1 * t_1_selected) * Mn[i, :] / (EInn))
 
-        # tau_torsion_h, tau_torsion_w
 
-        sigma_vm_w = (sigma ** 2 + tau_torsion_w ** 2 - sigma * tau_torsion_w + 1e-15) ** 0.5
+        sigma_vm_w = (sigma_axial ** 2 + tau_torsion_w ** 2 - sigma_axial * tau_torsion_w + 1e-15) ** 0.5
 
-        sigma_vm_h = (sigma ** 2 + tau_torsion_h ** 2 - sigma * tau_torsion_h + 1e-15) ** 0.5
+        sigma_vm_h = (sigma_axial ** 2 + tau_torsion_h ** 2 - sigma_axial * tau_torsion_h + 1e-15) ** 0.5
 
         if T == 0:
             self.options['symbolic_expressions']['sigma_vm_slice_w'] = sigma_vm_w
@@ -229,9 +263,11 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                                                 symb_stress_points],
                                                                                [self.options['symbolic_expressions'][
                                                                                     'sigma_vm_h']])
+        # endregion
 
-        sigma_w = horzcat(sigma_vm_w, sigma_axial)
-        sigma_h = horzcat(sigma_vm_h, sigma_axial)
+        # region Net total stress
+        sigma_w = vertcat(sigma_vm_w, vertcat(tau_max_c, tau_max_n))
+        sigma_h = vertcat(sigma_vm_h, vertcat(tau_max_c, tau_max_n))
         if T == 0:
             pass
         else:
@@ -255,17 +291,42 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
 
 
-    def stress_formulae_box(self,
-                        n, T,
-                        number_of_stress_points,
-                        cs,
-                        symb_stress_points,
-                        stress_rec_points):
+    def stress_formulae_box(self, n, T, cs):
         """
         If T = 0, we are looking at the slice
         If T = 1, static analysis
         If T > 1, dynamic analysis
         """
+        stress_rec_points = self.options['stress_rec_points']
+        assert stress_rec_points.shape[1] == n_nodes
+        assert int(stress_rec_points.shape[0] / 2) == 4, \
+            'Implementation right now assumes 4 points at the 4 corners of the box CS'
+        number_of_stress_points = int(stress_rec_points.shape[0] / 2)
+        """
+        The points must be ordered in the following format
+            1 ------------------------------------- 2
+              -                y                  -
+              -                |                  -
+              -                --> x              -
+              -                                   -
+              -                                   -
+            4 ------------------------------------- 3
+        """
+        # Point 1
+        assert (stress_rec_points[0, :] < 0).all()  # x coordinate must be negative
+        assert (stress_rec_points[1, :] > 0).all()  # y coordinate must be positive
+        # Point 2
+        assert (stress_rec_points[2, :] > 0).all()  # x coordinate must be positive
+        assert (stress_rec_points[3, :] > 0).all()  # y coordinate must be positive
+        # Point 3
+        assert (stress_rec_points[4, :] > 0).all()  # x coordinate must be positive
+        assert (stress_rec_points[5, :] < 0).all()  # y coordinate must be negative
+        # Point 4
+        assert (stress_rec_points[6, :] < 0).all()  # x coordinate must be negative
+        assert (stress_rec_points[7, :] < 0).all()  # y coordinate must be negative
+
+        symb_stress_points = SX.sym('stress_pts', stress_rec_points.shape[1], stress_rec_points.shape[0]).T
+
         t_left = cs[0:self.options['num_divisions']]
         t_top = cs[self.options['num_divisions']:2*self.options['num_divisions']]
         t_right = cs[2*self.options['num_divisions']:3*self.options['num_divisions']]

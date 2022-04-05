@@ -15,18 +15,21 @@ class BeamInterface(om.ExplicitComponent):
         self.options.declare('num_divisions', types=int)
         self.options.declare('num_cs_variables', types=int)
         self.options.declare('symbolic_parent')
+        self.options.declare('num_timesteps')
         # Function per constraint:
         self.symbolic_functions = {}
 
     def setup(self):
         self.symbolic_functions = self.options['symbolic_parent']
 
+        # self.symbolic_functions['stress_rec_points']
+
         self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0] + 1
 
         # Traditional input outputs:
-        self.add_input('x', shape=18 * self.options['num_divisions'])
+        self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
         self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
-        self.add_output('cs_o', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
+        self.add_output('cs_out', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
         self.add_output('mass', shape=1)
 
         # Symbolic numerical channels:
@@ -38,7 +41,9 @@ class BeamInterface(om.ExplicitComponent):
         self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('EA', shape=self.options['num_divisions'])
-        self.add_output('x_out', shape=18 * self.options['num_divisions'])
+        self.add_output('stress_rec_points', shape=(self.symbolic_functions['stress_rec_points'].size_out(0)[0], self.symbolic_functions['stress_rec_points'].size_out(0)[1]))
+
+        self.add_output('x_out', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         outputs['x_out'] = inputs['x']
@@ -51,7 +56,8 @@ class BeamInterface(om.ExplicitComponent):
         outputs['i_matrix'] = np.zeros([self.options['num_divisions'] - 1, 3, 3])
         outputs['mu'] = np.zeros(self.options['num_divisions'] - 1)
 
-        outputs['cs_o'] = cs_num
+
+        outputs['cs_out'] = cs_num
 
         D_num = self.symbolic_functions['D'](cs_num)
         Einv_num = self.symbolic_functions['Einv'](cs_num)
@@ -72,7 +78,10 @@ class BeamInterface(om.ExplicitComponent):
                 outputs['oneover'][i] = oneover_num[i].full()
 
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
+        stress_recovery_points = self.symbolic_functions['stress_rec_points'](cs_num)
+
         outputs['mass'] = total_mass.full()
+        outputs['stress_rec_points'] = stress_recovery_points.full()
         pass
 
 
@@ -98,6 +107,9 @@ class SymbolicBeam(ABC, om.Group):
         self.options.declare('sigmaY', types=float)
         self.options.declare('num_timesteps', types=int)
         self.options.declare('rho_KS', types=float)
+
+        # Optional stress definition, in case stress analysis is of importance
+        self.options.declare('stress_definition', default=None)
 
         # Beam axis node locations
         self.options.declare('r0')
@@ -143,6 +155,7 @@ class SymbolicBeam(ABC, om.Group):
         self.options['rho'] = beam_definition.rho.magnitude
         self.options['sigmaY'] = beam_definition.sigmaY.magnitude
         self.options['rho_KS'] = beam_definition.rho_KS
+        self.options['num_timesteps'] = beam_definition.num_timesteps
         # Read sequence of points within the beam
 
         initial_points = beam_definition.beam_points.magnitude
@@ -430,6 +443,7 @@ class SymbolicBeam(ABC, om.Group):
             Einv[i] = inv(E[i])
         self.symbolic_expressions['Einv'] = Einv
         self.symbolic_expressions['E'] = E
+        self.symbolic_expressions['EA'] = EA
 
         # region Loads
         self.symbolics['forces_dist'] = SX.sym(self.options['name'] + 'forces_dist', 3, n - 1)
@@ -470,9 +484,30 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         # Generating beam interface:
         self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
                                             symbolic_parent=self.symbolic_functions, num_cs_variables=2,
-                                            constraint_group=self.constraints)
+                                            num_timesteps=self.options["num_timesteps"])
         # Adding beam interface
         self.add_subsystem('DoubleSymmetricBeamInterface', self.beam_interface)
+
+        # Check whether the beam was passed a stress definition:
+        if not (self.options['stress_definition'] is None):
+            self.options['stress_definition'].options['num_cs_variables'] = 2  # height and width in this case
+            self.options['stress_definition'].options['num_divisions'] = self.options["num_divisions"]
+            self.options['stress_definition'].options['num_timesteps'] = self.options["num_timesteps"]
+            self.options['stress_definition'].options['r0'] = self.options["r0"]
+            self.options['stress_definition'].options['th0'] = self.options["th0"]
+            self.options['stress_definition'].options['seq'] = self.options["seq"]
+
+            self.options['stress_definition'].options['E'] = self.options["E"]      # TODO: Do Material model
+            self.options['stress_definition'].options['G'] = self.options["G"]
+
+            self.options['stress_definition'].options['symbolic_variables'] = self.symbolic_expressions
+            # Add the stress definition to the beam model
+            self.add_subsystem('DoubleSymmetricBeamStressModel', self.options['stress_definition'])
+            # Connect the stress model with the beam interface
+            self.connect('DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricBeamStressModel.cs')
+            self.connect('DoubleSymmetricBeamInterface.x_out', 'DoubleSymmetricBeamStressModel.x')
+            self.connect('DoubleSymmetricBeamInterface.stress_rec_points', 'DoubleSymmetricBeamStressModel.stress_rec_points')
+            pass
         return
 
     # region Common functions
@@ -481,9 +516,23 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         n = self.options['num_divisions']
         # Design Variables
         cs = SX.sym(self.options['name'] + 'cs', 2 * n)
+        self.symbolic_expressions['cs'] = cs
         h = cs[0:n]
         w = cs[n:2 * n]
 
+        # Generating the corner point function:
+        corner_points = SX.sym('cpoint', 8,n)
+
+        corner_points[0, :] = -w / 2
+        corner_points[1, :] = h / 2
+        corner_points[2, :] = w / 2
+        corner_points[3, :] = h / 2
+        corner_points[4, :] = w / 2
+        corner_points[5, :] = -h / 2
+        corner_points[6, :] = -w / 2
+        corner_points[7, :] = -h / 2
+
+        self.symbolic_expressions['stress_rec_points'] = corner_points
         self.symbolics['h'] = h
         self.symbolics['w'] = w
         self.symbolics['cs'] = cs
@@ -507,8 +556,6 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             EIxz[i] = 0
             J = (w[i] * h[i] ** 3) * (2 / 9) * (1 / (1 + (h[i] / w[i]) ** 2))
             GJ[i] = self.options['G'] * J
-
-            # GJ[i] = (self.options['E'] / (2 * (1 + self.options['nu']))) * J
 
         # endregion
 
@@ -552,6 +599,9 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                                                                self.symbolic_expressions['delta_r_CG_tilde'])
         self.symbolic_functions['Einv'] = Function(self.options['name'] + "Einv", [cs],
                                                    self.symbolic_expressions['Einv'])
+
+        self.symbolic_functions['stress_rec_points'] = Function(self.options['name'] + "stress_rec", [cs],
+                                                   [self.symbolic_expressions['stress_rec_points']])
 
         self.create_local_stress_function()
         self.create_mass_function()
