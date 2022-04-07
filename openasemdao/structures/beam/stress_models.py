@@ -41,9 +41,17 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         if (self.options['num_cs_variables'] == 2):  # Rectangular beam with 2 degrees of freedom per cross-section h w
             self.options['stress_rec_points'] = np.zeros((self.options['symbolic_variables']['stress_rec_points'].shape[0], self.options['symbolic_variables']['stress_rec_points'].shape[1]))
             self.add_input('stress_rec_points', shape=(self.options['symbolic_variables']['stress_rec_points'].shape[0], self.options['symbolic_variables']['stress_rec_points'].shape[1]))
+
+            """
+                    The following are the stresses modeled in the rectangular beam:
+                    2 x 0n -> 4n : Axial Stresses at the corners
+                    2 x 4n -> 8n : Von Misses Stress at the corners
+                    2 x 8n -> 9n : Shear stress at the horizontal beam direction
+                    2 x 9n -> 10n: Shear stress at the vertical beam direction
+            """
+
             self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
-            self.add_output('sigma', shape=(6*self.options['num_divisions'], self.options['num_timesteps']+1))
-        pass
+            self.add_output('sigma', shape=(10*self.options['num_divisions'], self.options['num_timesteps']+1))
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         if (self.options['num_cs_variables'] == 2):
@@ -266,8 +274,8 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # endregion
 
         # region Net total stress
-        sigma_w = vertcat(sigma_vm_w, vertcat(tau_max_c, tau_max_n))
-        sigma_h = vertcat(sigma_vm_h, vertcat(tau_max_c, tau_max_n))
+        sigma_w = vertcat(sigma_axial, sigma_vm_w, vertcat(tau_max_c, tau_max_n))
+        sigma_h = vertcat(sigma_axial, sigma_vm_h, vertcat(tau_max_c, tau_max_n))
         if T == 0:
             pass
         else:
