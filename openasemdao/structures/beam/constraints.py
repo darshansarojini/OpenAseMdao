@@ -8,6 +8,7 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
         self.options.declare('num_cs_variables', types=int)  # Important when defining the number of total cs variables
         self.options.declare('stress_computation')         # Stress related to the aggregator
         self.options.declare('total_stress_constraint', types=dict)
+        self.options.declare('debug_flag', types=bool, default=False)  # To enable or disable debugging
         self.options.declare('sigmaY', default=276*10**6)  # Yield stress ADD DEFAULTS
         self.options.declare('rho_KS', default=60.0)       # stress_constraint penalty parameter
         self.symbolic_expressions = {}
@@ -53,5 +54,30 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
         pass
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
-        cs = self.options['total_stress_constraint']['sym_funct'](inputs['sigma'])
-        outputs['cs_strength'] = cs.full()
+        if self.options['debug_flag']:
+            sigma_in = inputs['sigma']
+
+            stress_constraint = sigma_in / self.options['sigmaY'] - 1
+            stress_constraint_n = -sigma_in / self.options['sigmaY'] - 1
+
+            max_stress_constraint_space = np.max(stress_constraint)
+            max_stress_constraint_space_n = np.max(stress_constraint_n)
+
+            A = np.sum(
+                np.sum(np.exp(self.options['rho_KS'] * (stress_constraint - max_stress_constraint_space))))
+
+            A_n = np.sum(
+                np.sum(np.exp(self.options['rho_KS'] * (stress_constraint_n - max_stress_constraint_space_n))))
+
+            aggregated_stress_constraint_positive = max_stress_constraint_space + (1 / self.options['rho_KS']) * np.log(
+                A)
+
+            aggregated_stress_constraint_negative = max_stress_constraint_space_n + (
+                        1 / self.options['rho_KS']) * np.log(
+                A_n)
+
+            outputs['cs_strength'] = np.asarray([aggregated_stress_constraint_positive, aggregated_stress_constraint_negative])
+
+        else:
+            cs = self.options['total_stress_constraint']['sym_funct'](inputs['sigma'])
+            outputs['cs_strength'] = cs.full()

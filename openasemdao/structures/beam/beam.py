@@ -522,7 +522,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
                         a_constraint.options["num_cs_variables"] = num_cs_variables
                         a_constraint.options["stress_computation"] = self.options['stress_definition']
-
+                        a_constraint.options["debug_flag"] = self.options['debug_flag']
                         self.add_subsystem(a_constraint.options["name"], a_constraint)
 
                         self.connect('DoubleSymmetricBeamStressModel.sigma',
