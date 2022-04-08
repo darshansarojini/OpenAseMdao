@@ -166,7 +166,7 @@ def test_axial_stress_computation():
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
 
     sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints,
-                                                        constraints=[str_constraint], stress_definition=stress_model)
+                                                        constraints=[str_constraint], stress_definition=stress_model, debug_flag = True)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
 

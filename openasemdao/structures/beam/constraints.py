@@ -6,55 +6,52 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
         self.options.declare('name', types=str)  # Just to tag the constraint in particular
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
         self.options.declare('num_cs_variables', types=int)  # Important when defining the number of total cs variables
-        self.options.declare(
-            'symbolic_variables')  # Where all the resultant cross-section symbolics come from beam parent
+        self.options.declare('stress_computation')         # Stress related to the aggregator
+        self.options.declare('total_stress_constraint', types=dict)
         self.options.declare('sigmaY', default=276*10**6)  # Yield stress ADD DEFAULTS
-        self.options.declare('rho_KS', default=60.0)  # stress_constraint penalty parameter
+        self.options.declare('rho_KS', default=60.0)       # stress_constraint penalty parameter
         self.symbolic_expressions = {}
         self.symbolic_stress_functions = {}
 
-        self.symbolic_stress_functions['total_stress_constraint'] = {}
-        self.symbolic_stress_functions['total_stress_constraint_jac'] = {}
+        self.options['total_stress_constraint'] = {}
 
     def setup(self):
-        self.beam_symbolics = self.options['symbolic_variables']
+        self.stress_input = self.options['stress_computation']
 
-        cs = self.beam_symbolics['cs']
+        stress_input = SX.sym('sigma_in', self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[0], self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[1])
 
-        stress = self.beam_symbolics['sigma'] # Symbolic expression denoting the stress within the beam
+        # Tensile constraint
 
-        driving_parameters = self.beam_symbolics[
-            'driving_parameters']  # Row vector symbolic parameters (apart from cs variables)
-                                   # that drive the stress function: e.g. sigma = f(Mx, corner point symbolics)
-
-        stress_constraint = stress / self.options['sigmaY'] - 1
+        stress_constraint = stress_input / self.options['sigmaY'] - 1
 
         max_stress_constraint_space = mmax(stress_constraint)
 
         A = sum2(sum1(exp(self.options['rho_KS'] * (stress_constraint - max_stress_constraint_space))))
 
-        aggregated_stress_constraint = max_stress_constraint_space + (1 / self.options['rho_KS']) * log(A)
+        aggregated_stress_constraint_positive = max_stress_constraint_space + (1 / self.options['rho_KS']) * log(A)
 
-        self.symbolic_expressions['stress'] = stress
-        self.symbolic_stress_functions['stress'] = Function("stress", [cs, driving_parameters], [stress])
-        self.symbolic_expressions['stress_constraint'] = stress
-        self.symbolic_stress_functions['stress_constraint'] = Function("stress_constraint", [cs, driving_parameters],
-                                                                [stress_constraint])
-        self.symbolic_expressions['total_stress_constraint'] = aggregated_stress_constraint
+        # Compressive constraint
 
-        self.symbolic_expressions['total_stress_constraint_jac'] = jacobian(aggregated_stress_constraint,
-                                                                                 cs)
+        stress_constraint_n = -stress_input / self.options['sigmaY'] - 1
 
-        self.symbolic_stress_functions['total_stress_constraint'] = Function("aggregated_stress_constraint",
-                                                                           [cs, driving_parameters],
-                                                                           [self.symbolic_expressions[
-                                                                                    'total_stress_constraint']])
+        max_stress_constraint_space_n = mmax(stress_constraint_n)
 
-        self.symbolic_stress_functions['total_stress_constraint_jac'] = Function("aggregated_stress_constraint_jac",
-                                                                               [cs, driving_parameters],
-                                                                               [self.symbolic_expressions[
-                                                                                    'total_stress_constraint_jac']])
+        A_n = sum2(sum1(exp(self.options['rho_KS'] * (stress_constraint_n - max_stress_constraint_space_n))))
 
-        self.symbolic_stress_functions['max_stress_constraint'] = Function("aggregated_stress_constraint",
-                                                                    [cs, driving_parameters],
-                                                                    [max_stress_constraint_space])
+        aggregated_stress_constraint_negative = max_stress_constraint_space_n + (1 / self.options['rho_KS']) * log(A_n)
+
+        self.add_input('sigma', shape=(self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[0],
+                                                   self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[1]))
+
+        self.add_output('cs_strength', shape=(2, 1))
+
+        self.symbolic_expressions['total_stress_constraint'] = vertcat(aggregated_stress_constraint_positive, aggregated_stress_constraint_negative)
+
+        self.options['total_stress_constraint']['sym_funct'] = Function("aggregated_stress_constraint",
+                                                                           [stress_input],
+                                                                           [self.symbolic_expressions['total_stress_constraint']])
+        pass
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        cs = self.options['total_stress_constraint']['sym_funct'](inputs['sigma'])
+        outputs['cs_strength'] = cs.full()

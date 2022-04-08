@@ -8,6 +8,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
     def initialize(self):
         # Make sure all the quantities necessary to make the system work are here
         self.options.declare('name', types=str)  # Just to tag the constraint in particular
+        self.options.declare('debug_flag', types=bool, default=False)  # To enable or disable debugging
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
         self.options.declare('num_cs_variables', types=int)  # To account for different number of sectional variables
         self.options.declare('symbolic_variables',
@@ -44,17 +45,31 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
             """
                     The following are the stresses modeled in the rectangular beam:
-                    2 x 0n -> 4n : Axial Stresses at the corners
-                    2 x 4n -> 8n : Von Misses Stress at the corners
-                    2 x 8n -> 9n : Shear stress at the horizontal beam direction
-                    2 x 9n -> 10n: Shear stress at the vertical beam direction
+                    T x 0n -> 4n : Axial Stresses at the corners
+                    T x 4n -> 8n : Von Misses Stress at the edges (center of edge)
+                    T x 8n -> 9n : Shear stress at the horizontal beam direction
+                    T x 9n -> 10n: Shear stress at the vertical beam direction
             """
 
             self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
             self.add_output('sigma', shape=(10*self.options['num_divisions'], self.options['num_timesteps']+1))
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
-        if (self.options['num_cs_variables'] == 2):
+        if self.options['debug_flag']:
+            # Point 1
+            assert (inputs['stress_rec_points'][0, :] < 0).all()  # x coordinate must be negative
+            assert (inputs['stress_rec_points'][1, :] > 0).all()  # y coordinate must be positive
+            # Point 2
+            assert (inputs['stress_rec_points'][2, :] > 0).all()  # x coordinate must be positive
+            assert (inputs['stress_rec_points'][3, :] > 0).all()  # y coordinate must be positive
+            # Point 3
+            assert (inputs['stress_rec_points'][4, :] > 0).all()  # x coordinate must be positive
+            assert (inputs['stress_rec_points'][5, :] < 0).all()  # y coordinate must be negative
+            # Point 4
+            assert (inputs['stress_rec_points'][6, :] < 0).all()  # x coordinate must be negative
+            assert (inputs['stress_rec_points'][7, :] < 0).all()  # y coordinate must be negative
+
+        if self.options['num_cs_variables'] == 2:
             h = inputs['cs'][0:self.options['num_divisions']]
             w = inputs['cs'][self.options['num_divisions']:2*self.options['num_divisions']]
 
@@ -89,18 +104,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
               -                                   -
             4 ------------------------------------- 3
         """
-        # # Point 1
-        # assert (stress_rec_points[0, :] < 0).all()  # x coordinate must be negative
-        # assert (stress_rec_points[1, :] > 0).all()  # y coordinate must be positive
-        # # Point 2
-        # assert (stress_rec_points[2, :] > 0).all()  # x coordinate must be positive
-        # assert (stress_rec_points[3, :] > 0).all()  # y coordinate must be positive
-        # # Point 3
-        # assert (stress_rec_points[4, :] > 0).all()  # x coordinate must be positive
-        # assert (stress_rec_points[5, :] < 0).all()  # y coordinate must be negative
-        # # Point 4
-        # assert (stress_rec_points[6, :] < 0).all()  # x coordinate must be negative
-        # assert (stress_rec_points[7, :] < 0).all()  # y coordinate must be negative
+
 
         symb_stress_points = SX.sym('stress_pts', stress_rec_points.shape[1], stress_rec_points.shape[0]).T
 

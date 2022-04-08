@@ -3,6 +3,7 @@ import openmdao.api as om
 from abc import ABC, abstractmethod
 from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
 from casadi import *
+from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
 
 
 class BeamInterface(om.ExplicitComponent):
@@ -10,12 +11,13 @@ class BeamInterface(om.ExplicitComponent):
     # outputs to all the different symbolic expressions defined within Beam, regardless of their type or
     # number of variables.
     def initialize(self):
-        self.options.declare('name', types=str)
-        self.options.declare('delta_s0')
-        self.options.declare('num_divisions', types=int)
+        self.options.declare('name', types=str)    # Name of the beam interface (not modifiable to the user)
+        self.options.declare('delta_s0')           # Needed for the mass computation of the beam
+        self.options.declare('num_divisions', types=int)    # Number of beam elements
         self.options.declare('num_cs_variables', types=int)
         self.options.declare('symbolic_parent')
         self.options.declare('num_timesteps')
+        self.options.declare('debug_flag', types=bool, default=False)
         # Function per constraint:
         self.symbolic_functions = {}
 
@@ -101,6 +103,7 @@ class SymbolicBeam(ABC, om.Group):
         self.options.declare("joints", default=[])
         self.options.declare('beam_type', types=str)
         self.options.declare('beam_bc', types=str)
+        self.options.declare('debug_flag', types=bool, default=False)
         self.options.declare('E', types=float)
         self.options.declare('rho', types=float)
         self.options.declare('G', types=float)
@@ -471,6 +474,9 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         # Adding the different common beam properties
         super().setup()
 
+        # Setting up the number of cross-sectional variables
+        num_cs_variables = 2
+
         # Create the symbolic function relating inputs and outputs
         self.create_symbolic_function()
 
@@ -483,14 +489,15 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
 
         # Generating beam interface:
         self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
-                                            symbolic_parent=self.symbolic_functions, num_cs_variables=2,
-                                            num_timesteps=self.options["num_timesteps"])
+                                            symbolic_parent=self.symbolic_functions, num_cs_variables=num_cs_variables,
+                                            num_timesteps=self.options["num_timesteps"], debug_flag = self.options["debug_flag"])
         # Adding beam interface
         self.add_subsystem('DoubleSymmetricBeamInterface', self.beam_interface)
 
         # Check whether the beam was passed a stress definition:
         if not (self.options['stress_definition'] is None):
-            self.options['stress_definition'].options['num_cs_variables'] = 2  # height and width in this case
+            self.options['stress_definition'].options['num_cs_variables'] = num_cs_variables  # height and width in this case
+            self.options['stress_definition'].options['debug_flag'] = self.options["debug_flag"]
             self.options['stress_definition'].options['num_divisions'] = self.options["num_divisions"]
             self.options['stress_definition'].options['num_timesteps'] = self.options["num_timesteps"]
             self.options['stress_definition'].options['r0'] = self.options["r0"]
@@ -507,6 +514,20 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             self.connect('DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricBeamStressModel.cs')
             self.connect('DoubleSymmetricBeamInterface.x_out', 'DoubleSymmetricBeamStressModel.x')
             self.connect('DoubleSymmetricBeamInterface.stress_rec_points', 'DoubleSymmetricBeamStressModel.stress_rec_points')
+
+            # Check if we have a stress constraint that is related to the stress model:
+            if len(self.constraints) > 0:
+                for a_constraint in self.constraints:
+                    if isinstance(a_constraint, StrenghtAggregatedConstraint):
+                        a_constraint.options["num_divisions"] = self.options["num_divisions"]
+                        a_constraint.options["num_cs_variables"] = num_cs_variables
+                        a_constraint.options["stress_computation"] = self.options['stress_definition']
+
+                        self.add_subsystem(a_constraint.options["name"], a_constraint)
+
+                        self.connect('DoubleSymmetricBeamStressModel.sigma',
+                                     a_constraint.options["name"] + '.sigma')
+                        break
             pass
         return
 
