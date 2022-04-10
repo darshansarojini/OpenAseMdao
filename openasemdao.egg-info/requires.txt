@@ -1,9 +1,0 @@
-h5py
-numpy
-pint
-scipy
-sympy
-pandas
-plotly
-openmdao
-openaerostruct

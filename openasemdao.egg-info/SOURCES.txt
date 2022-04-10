@@ -1,9 +1,0 @@
-LICENSE
-README.md
-setup.py
-openasemdao/__init__.py
-openasemdao.egg-info/PKG-INFO
-openasemdao.egg-info/SOURCES.txt
-openasemdao.egg-info/dependency_links.txt
-openasemdao.egg-info/requires.txt
-openasemdao.egg-info/top_level.txt
