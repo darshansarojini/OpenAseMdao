@@ -14,9 +14,11 @@ dependencies:
   - numpy
   - h5py
   - plotly
+  - sympy
   - jupyter
   - ipywidgets
   - pip:
       - openmdao
       - pyxdsm
       - casadi
+      - pint
