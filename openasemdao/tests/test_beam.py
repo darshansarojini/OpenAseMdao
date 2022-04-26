@@ -63,7 +63,8 @@ def test_zero_element_generation():
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
 
-    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model)
+    sample_beam = StaticDoublySymRectBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                        num_interp_sections=2)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
 
