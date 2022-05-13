@@ -10,6 +10,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         self.options.declare('name', types=str)  # Just to tag the constraint in particular
         self.options.declare('debug_flag', types=bool, default=False)  # To enable or disable debugging
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
+        self.options.declare('num_DvCs', types=int)       # To know the actual number of cross-sectional variables
         self.options.declare('num_cs_variables', types=int)  # To account for different number of sectional variables
         self.options.declare('symbolic_variables',
                              types=dict)  # Where all the resultant cross-section symbolics come from beam parent
@@ -35,7 +36,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
     def setup(self):
         # Setup all the nice goodies that make this thing work
-        self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_divisions'])
+        self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_DvCs'])
         self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
         # Time to generate the stress formulas:
         cs = self.options['symbolic_variables']['cs']
@@ -70,8 +71,8 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             assert (inputs['stress_rec_points'][7, :] < 0).all()  # y coordinate must be negative
 
         if self.options['num_cs_variables'] == 2:
-            h = inputs['cs'][0:self.options['num_divisions']]
-            w = inputs['cs'][self.options['num_divisions']:2*self.options['num_divisions']]
+            h = inputs['cs'][0:self.options['num_DvCs']]
+            w = inputs['cs'][self.options['num_DvCs']:2*self.options['num_DvCs']]
 
             if np.linalg.norm(h) < np.linalg.norm(w):
                 sigma = self.options['symbolic_stress_functions']['sigma_w'](inputs['x'],
@@ -108,8 +109,8 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
         symb_stress_points = SX.sym('stress_pts', stress_rec_points.shape[1], stress_rec_points.shape[0]).T
 
-        h = cs[0:self.options['num_divisions']]
-        w = cs[self.options['num_divisions']:]
+        h = self.options['symbolic_variables']['h']
+        w = self.options['symbolic_variables']['w']
 
         sol_x = SX.sym('x_sol', 18 * self.options['num_divisions'], T + 1)
 
