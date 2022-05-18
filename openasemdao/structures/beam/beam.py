@@ -1,4 +1,3 @@
-from openmdao.core.explicitcomponent import ExplicitComponent
 import openmdao.api as om
 from abc import ABC, abstractmethod
 from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
@@ -13,10 +12,10 @@ class BeamInterface(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('name', types=str)    # Name of the beam interface (not modifiable to the user)
         self.options.declare('delta_s0')           # Needed for the mass computation of the beam
-        self.options.declare('num_divisions', types=int)    # Number of beam elements
-        self.options.declare('num_DvCs', types=int)  # To know the actual number of cross-sectional variables
-        self.options.declare('num_cs_variables', types=int)
-        self.options.declare('symbolic_parent')
+        self.options.declare('num_divisions', types=int)    # Number of cross-sections accounting for modifications
+        self.options.declare('num_DvCs', types=int)  # Number of cross-sections that have design variables
+        self.options.declare('num_cs_variables', types=int)  # Number of distinct variables on each cross-section
+        self.options.declare('symbolic_parent')  # Symbolic expressions that are needed for computations
         self.options.declare('num_timesteps')
         self.options.declare('debug_flag', types=bool, default=False)
         # Function per constraint:
@@ -25,7 +24,7 @@ class BeamInterface(om.ExplicitComponent):
     def setup(self):
         self.symbolic_functions = self.options['symbolic_parent']
 
-        # self.symbolic_functions['stress_rec_points']
+        # self.symbolic_functions['corner_points']
 
         self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0] + 1
 
@@ -44,7 +43,7 @@ class BeamInterface(om.ExplicitComponent):
         self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
         self.add_output('EA', shape=self.options['num_divisions'])
-        self.add_output('stress_rec_points', shape=(self.symbolic_functions['stress_rec_points'].size_out(0)[0], self.symbolic_functions['stress_rec_points'].size_out(0)[1]))
+        self.add_output('corner_points', shape=(self.symbolic_functions['corner_points'].size_out(0)[0], self.symbolic_functions['corner_points'].size_out(0)[1]))
 
         self.add_output('x_out', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
 
@@ -81,10 +80,10 @@ class BeamInterface(om.ExplicitComponent):
                 outputs['oneover'][i] = oneover_num[i].full()
 
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
-        stress_recovery_points = self.symbolic_functions['stress_rec_points'](cs_num)
+        stress_recovery_points = self.symbolic_functions['corner_points'](cs_num)
 
         outputs['mass'] = total_mass.full()
-        outputs['stress_rec_points'] = stress_recovery_points.full()
+        outputs['corner_points'] = stress_recovery_points.full()
         pass
 
 
@@ -102,7 +101,7 @@ class SymbolicBeam(ABC, om.Group):
         self.options.declare('num_divisions', types=int)
         self.options.declare("applied_loads", default=[])
         self.options.declare("joints", default=[])
-        self.options.declare('beam_type', types=str)
+        self.options.declare('beam_type', values=('Fuselage', 'Wing'))
         self.options.declare('beam_bc', types=str)
         self.options.declare('debug_flag', types=bool, default=False)
         self.options.declare('E', types=float)
@@ -110,7 +109,6 @@ class SymbolicBeam(ABC, om.Group):
         self.options.declare('G', types=float)
         self.options.declare('sigmaY', types=float)
         self.options.declare('num_timesteps', types=int)
-        self.options.declare('rho_KS', types=float)
 
         # Optional stress definition, in case stress analysis is of importance
         self.options.declare('stress_definition', default=None)
@@ -129,8 +127,8 @@ class SymbolicBeam(ABC, om.Group):
         # Beam s0
         self.options.declare('delta_s0')
         # Beam node_lim and inter_node_lim
-        self.options.declare('node_lim', types=np.ndarray, default=np.array([0, 10], dtype=np.int32))
-        self.options.declare('inter_node_lim', types=np.ndarray, default=np.array([0, 9], dtype=np.int32))
+        self.options.declare('node_lim', types=np.ndarray)
+        self.options.declare('inter_node_lim', types=np.ndarray)
         # Beam K0a
         self.options.declare('K0a')
         # Beam Initial Conditions:
@@ -143,7 +141,6 @@ class SymbolicBeam(ABC, om.Group):
         # Empty Casadi containers
         self.symbolic_expressions = {}
         self.symbolic_functions = {}
-        self.symbolics = {}
         self.constraints = []
         # Additional inputs at initialize
         self.declare_additional_beam_inputs()
@@ -163,7 +160,6 @@ class SymbolicBeam(ABC, om.Group):
         self.options['G'] = beam_definition.G.magnitude
         self.options['rho'] = beam_definition.rho.magnitude
         self.options['sigmaY'] = beam_definition.sigmaY.magnitude
-        self.options['rho_KS'] = beam_definition.rho_KS
         self.options['num_timesteps'] = beam_definition.num_timesteps
         # Read sequence of points within the beam
 
@@ -221,7 +217,7 @@ class SymbolicBeam(ABC, om.Group):
                 # Make point easily if eta is 1:
                 if a_load.eta == 1.0:
                     last_slice = np.copy(initial_points[:, -1])
-                    initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))
+                    initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))  #TODO: make load be a BC Load
                     self.options['section_characteristics'].append(section_types[2])
                     # Finally add the load subsystem to the beam:
                     self.add_subsystem(a_load.load_label, a_load.component)
@@ -347,7 +343,7 @@ class SymbolicBeam(ABC, om.Group):
             self.BC['root'][0:3] = self.options['r0'][0:3, 0]
             self.BC['root'][3:6] = self.options['th0'][0:3, 0]
         elif self.options['beam_bc'] == 'Free-Free':
-            raise NotImplementedError
+            raise NotImplementedError                 #TODO: Add actual condition, now that we in theory can add joints
         else:
             raise IOError
 
@@ -486,11 +482,11 @@ class SymbolicBeam(ABC, om.Group):
         self.symbolic_expressions['EA'] = EA
 
         # region Loads
-        self.symbolics['forces_dist'] = SX.sym(self.options['name'] + 'forces_dist', 3, n - 1)
-        self.symbolics['moments_dist'] = SX.sym(self.options['name'] + 'moments_dist', 3, n - 1)
+        self.symbolic_expressions['forces_dist'] = SX.sym(self.options['name'] + 'forces_dist', 3, n - 1)
+        self.symbolic_expressions['moments_dist'] = SX.sym(self.options['name'] + 'moments_dist', 3, n - 1)
 
-        self.symbolics['forces_conc'] = SX.sym(self.options['name'] + 'forces_conc', 3, n - 1)
-        self.symbolics['moments_conc'] = SX.sym(self.options['name'] + 'moments_conc', 3, n - 1)
+        self.symbolic_expressions['forces_conc'] = SX.sym(self.options['name'] + 'forces_conc', 3, n - 1)
+        self.symbolic_expressions['moments_conc'] = SX.sym(self.options['name'] + 'moments_conc', 3, n - 1)
         # endregion
         return
 
@@ -545,7 +541,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             # Connect the stress model with the beam interface
             self.connect('DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricBeamStressModel.cs')
             self.connect('DoubleSymmetricBeamInterface.x_out', 'DoubleSymmetricBeamStressModel.x')
-            self.connect('DoubleSymmetricBeamInterface.stress_rec_points', 'DoubleSymmetricBeamStressModel.stress_rec_points')
+            self.connect('DoubleSymmetricBeamInterface.corner_points', 'DoubleSymmetricBeamStressModel.corner_points')
 
             # Check if we have a stress constraint that is related to the stress model:
             if len(self.constraints) > 0:
@@ -621,10 +617,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         corner_points[6, :] = -w / 2
         corner_points[7, :] = -h / 2
 
-        self.symbolic_expressions['stress_rec_points'] = corner_points
-        self.symbolics['h'] = h
-        self.symbolics['w'] = w
-        self.symbolics['cs'] = cs
+        self.symbolic_expressions['corner_points'] = corner_points
 
         self.symbolic_expressions['h'] = h
         self.symbolic_expressions['w'] = w
@@ -693,8 +686,8 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.symbolic_functions['Einv'] = Function(self.options['name'] + "Einv", [cs],
                                                    self.symbolic_expressions['Einv'])
 
-        self.symbolic_functions['stress_rec_points'] = Function(self.options['name'] + "stress_rec", [cs],
-                                                   [self.symbolic_expressions['stress_rec_points']])
+        self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs],
+                                                   [self.symbolic_expressions['corner_points']])
         self.create_mass_function()
         return
 
@@ -702,19 +695,20 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
 
     def create_symbolic_states(self):
         n = self.options['num_divisions']
+        T = self.options['num_timesteps']
         # State Variables
-        self.symbolics['x'] = SX.sym(self.options['name'] + 'x', 18 * n, 1)
-        self.symbolics['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, 1)
-        self.symbolics['x_slice'] = self.symbolics['x']
-        self.symbolics['xDot_slice'] = self.symbolics['xDot']
+        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T+1)
+        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T+1)
+        self.symbolic_expressions['x_slice'] = self.symbolic_expressions['x'][:, 0]
+        self.symbolic_expressions['xDot_slice'] = self.symbolic_expressions['xDot'][:, 0]
         return
 
     def create_mass_function(self):
         SCALE_FACT = 100000
         n = self.options['num_divisions']
-        cs = self.symbolics['cs']
-        h = self.symbolics['h']
-        w = self.symbolics['w']
+        cs = self.symbolic_expressions['cs']
+        h = self.symbolic_expressions['h']
+        w = self.symbolic_expressions['w']
         s_0 = SX.sym(self.options['name'] + 's_0', n - 1)
 
         A = h * w
@@ -737,7 +731,7 @@ class BoxBeamRepresentation(SymbolicBeam):
         super().initialize()
 
     def declare_additional_beam_inputs(self):
-        self.options.declare('stress_rec_points')
+        self.options.declare('corner_points')
         return
 
     def setup(self):
@@ -778,7 +772,7 @@ class BoxBeamRepresentation(SymbolicBeam):
             # Connect the stress model with the beam interface
             self.connect('DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricBeamStressModel.cs')
             self.connect('DoubleSymmetricBeamInterface.x_out', 'DoubleSymmetricBeamStressModel.x')
-            self.connect('DoubleSymmetricBeamInterface.stress_rec_points', 'DoubleSymmetricBeamStressModel.stress_rec_points')
+            self.connect('DoubleSymmetricBeamInterface.corner_points', 'DoubleSymmetricBeamStressModel.corner_points')
 
             # Check if we have a stress constraint that is related to the stress model:
             if len(self.constraints) > 0:
@@ -897,16 +891,7 @@ class BoxBeamRepresentation(SymbolicBeam):
         corner_points[6, :] = -w / 2
         corner_points[7, :] = -h / 2
 
-        self.symbolic_expressions['stress_rec_points'] = corner_points
-
-        self.symbolics['h'] = h
-        self.symbolics['w'] = w
-        self.symbolics['t_left'] = t_left
-        self.symbolics['t_top'] = t_top
-        self.symbolics['t_right'] = t_right
-        self.symbolics['t_bot'] = t_bot
-
-        self.symbolics['cs'] = cs
+        self.symbolic_expressions['corner_points'] = corner_points
 
         self.symbolic_expressions['h'] = h
         self.symbolic_expressions['w'] = w
@@ -917,39 +902,109 @@ class BoxBeamRepresentation(SymbolicBeam):
 
         self.create_symbolic_states()
 
+        # region Box-beam cross-section 4 parts
+        # Segments 1:
+        A_sect1 = t_top * w
+        rho_sect1 = self.options['rho']
+        E_sect1 = self.options['E']
+        cg_sect1_y = 0
+        cg_sect1_z = (h - t_top) / 2
+        Ixx_sect1 = (w * t_top ** 3) / 12
+        Izz_sect1 = (t_top * w ** 3) / 12
+        # Segments 2:
+        A_sect2 = t_left * (h - t_top - t_bot)
+        rho_sect2 = self.options['rho']
+        E_sect2 = self.options['E']
+        cg_sect2_y = (t_left - w) / 2
+        cg_sect2_z = h / 2 - t_top - (h - t_top - t_bot) / 2
+        Ixx_sect2 = (t_left * (h - t_top - t_bot) ** 3) / 12
+        Izz_sect2 = ((h - t_top - t_bot) * t_left ** 3) / 12
+        # Segments 3:
+        A_sect3 = t_bot * w
+        rho_sect3 = self.options['rho']
+        E_sect3 = self.options['E']
+        cg_sect3_y = 0
+        cg_sect3_z = (t_bot - h) / 2
+        Ixx_sect3 = (w * t_bot ** 3) / 12
+        Izz_sect3 = (t_bot * w ** 3) / 12
+        # Segments 4:
+        A_sect4 = t_right * (h - t_top - t_bot)
+        E_sect4 = self.options['E']
+        rho_sect4 = self.options['rho']
+        cg_sect4_y = (w - t_right) / 2
+        cg_sect4_z = h / 2 - t_top - (h - t_top - t_bot) / 2
+        Ixx_sect4 = (t_right * (h - t_top - t_bot) ** 3) / 12
+        Izz_sect4 = ((h - t_top - t_bot) * t_right ** 3) / 12
+
+        self.symbolic_expressions['A_segments'] = {'Top': A_sect1,
+                                                   'Left': A_sect2,
+                                                   'Bot': A_sect3,
+                                                   'Right': A_sect4}
+        # endregion
+
         # region Offsets from beam axis
-        n_ea = SX.zeros(n)
-        c_ea = SX.zeros(n)
-        n_ta = SX.zeros(n)
-        c_ta = SX.zeros(n)
+        e_cg_x = (cg_sect1_y * A_sect1 * E_sect1 +
+                  cg_sect2_y * A_sect2 * E_sect2 +
+                  cg_sect3_y * A_sect3 * E_sect3 +
+                  cg_sect4_y * A_sect4 * E_sect4) / \
+                 (A_sect1 * E_sect1 +
+                  A_sect2 * E_sect2 +
+                  A_sect3 * E_sect3 +
+                  A_sect4 * E_sect4)
+        e_cg_z = (cg_sect1_z * A_sect1 * E_sect1 +
+                  cg_sect2_z * A_sect2 * E_sect2 +
+                  cg_sect3_z * A_sect3 * E_sect3 +
+                  cg_sect4_z * A_sect4 * E_sect4) / \
+                 (A_sect1 * E_sect1 +
+                  A_sect2 * E_sect2 +
+                  A_sect3 * E_sect3 +
+                  A_sect4 * E_sect4)
+        n_ea = e_cg_z
+        c_ea = e_cg_x
+        n_ta = SX.zeros(n_nodes)
+        c_ta = SX.zeros(n_nodes)
         # endregion
 
         # region Bending and Torsional Stiffness
-        EIxx = SX.sym(self.options['name'] + 'EIxx', n)
-        EIzz = SX.sym(self.options['name'] + 'EIzz', n)
-        EIxz = SX.sym(self.options['name'] + 'EIxz', n)
-        GJ = SX.sym(self.options['name'] + 'GJ', n)
-        for i in range(n):
-            EIxx[i] = self.options['E'] * (1 / 12) * (w[i] * h[i] ** 3)
-            EIzz[i] = self.options['E'] * (1 / 12) * (w[i] ** 3 * h[i])
-            EIxz[i] = 0
-            J = (w[i] * h[i] ** 3) * (2 / 9) * (1 / (1 + (h[i] / w[i]) ** 2))
-            GJ[i] = self.options['G'] * J
+        # Parallel axis theorem
+        Ixx = Ixx_sect1 + A_sect1 * (cg_sect1_z - e_cg_z) ** 2 + \
+              Ixx_sect2 + A_sect2 * (cg_sect2_z - e_cg_z) ** 2 + \
+              Ixx_sect3 + A_sect3 * (cg_sect3_z - e_cg_z) ** 2 + \
+              Ixx_sect4 + A_sect4 * (cg_sect4_z - e_cg_z) ** 2
+        Izz = Izz_sect1 + A_sect1 * (cg_sect1_y - e_cg_x) ** 2 + \
+              Izz_sect2 + A_sect2 * (cg_sect2_y - e_cg_x) ** 2 + \
+              Izz_sect3 + A_sect3 * (cg_sect3_y - e_cg_x) ** 2 + \
+              Izz_sect4 + A_sect4 * (cg_sect4_y - e_cg_x) ** 2
+        Ixz = -(
+                A_sect1 * (cg_sect1_y - e_cg_x) * (cg_sect1_z - e_cg_z) +
+                A_sect2 * (cg_sect2_y - e_cg_x) * (cg_sect2_z - e_cg_z) +
+                A_sect3 * (cg_sect3_y - e_cg_x) * (cg_sect3_z - e_cg_z) +
+                A_sect4 * (cg_sect4_y - e_cg_x) * (cg_sect4_z - e_cg_z)
+        )
+        J = 2 * (
+                ((h - t_top / 2 - t_bot / 2) * (w - t_right / 2 - t_left / 2)) ** 2
+        ) / \
+            (
+                    ((w - t_right / 2 - t_left / 2) / (0.5 * t_top + 0.5 * t_bot)) +
+                    ((h - t_top / 2 - t_bot / 2) / (0.5 * t_right + 0.5 * t_left))
+            )
 
+        EIxx = self.options['E'] * Ixx
+        EIzz = self.options['E'] * Izz
+        EIxz = self.options['E'] * Ixz
+        GJ = (self.options['E'] / (2 * (1 + self.options['nu']))) * J
         # endregion
 
         # region Axial and Shear Stiffness
-        GKn = (self.options['G']) / 1.2 * np.ones(n)
-        GKc = (self.options['G']) / 1.2 * np.ones(n)
-        A = SX.sym(self.options['name'] + 'A', n)
-        EA = SX.sym(self.options['name'] + 'EA', n)
-        for i in range(n):
-            A[i] = h[i] * w[i]
-            EA[i] = self.options['E'] * A[i]
+        GKn = (self.options['E'] / (2 * (1 + self.options['nu']))) / 1.2 * np.ones(n)
+        GKc = (self.options['E'] / (2 * (1 + self.options['nu']))) / 1.2 * np.ones(n)
+        EA = E_sect1 * A_sect1 + E_sect2 * A_sect2 + E_sect3 * A_sect3 + E_sect4 * A_sect4
+        self.symbolic_expressions['EA'] = EA
         # endregion
 
         # region Mass properties
-        mu = SX.sym(self.options['name'] + 'mu', n - 1)
+        A = A_sect1 + A_sect2 + A_sect3 + A_sect4
+        mu = SX.sym('mu', n - 1)
         for i in range(n - 1):
             A1 = A[i]
             A2 = A[i + 1]
@@ -957,8 +1012,41 @@ class BoxBeamRepresentation(SymbolicBeam):
         # endregion
 
         # region delta_r_CG
+        m_cg_x = (cg_sect1_y * A_sect1 * rho_sect1 +
+                  cg_sect2_y * A_sect2 * rho_sect2 +
+                  cg_sect3_y * A_sect3 * rho_sect3 +
+                  cg_sect4_y * A_sect4 * rho_sect4) / \
+                 (A_sect1 * rho_sect1 +
+                  A_sect2 * rho_sect2 +
+                  A_sect3 * rho_sect3 +
+                  A_sect4 * rho_sect4)
+        m_cg_z = (cg_sect1_z * A_sect1 * rho_sect1 +
+                  cg_sect2_z * A_sect2 * rho_sect2 +
+                  cg_sect3_z * A_sect3 * rho_sect3 +
+                  cg_sect4_z * A_sect4 * rho_sect4) / \
+                 (A_sect1 * rho_sect1 +
+                  A_sect2 * rho_sect2 +
+                  A_sect3 * rho_sect3 +
+                  A_sect4 * rho_sect4)
         # column i is the position of the CG on the cross-section i, relative to the csn origin, expressed in xyz
-        delta_r_CG = np.zeros([self.options['num_divisions'] - 1, 3])
+        delta_r_CG = SX.zeros(n - 1, 3)
+        for i in range(n - 1):
+            delta_r_CG[i, 1] = (m_cg_x[i] + m_cg_x[i + 1]) / 2
+            delta_r_CG[i, 2] = (m_cg_z[i] + m_cg_z[i + 1]) / 2
+        # endregion
+
+        # region Shear terms
+        A_inner = ((h - t_top / 2 - t_bot / 2) * (w - t_right / 2 - t_left / 2))
+
+        Q_max_z = w * t_top * (h / 2 - e_cg_z - t_top / 2) + \
+                  0.5 * t_right * (h / 2 - t_top - e_cg_z) ** 2 + \
+                  0.5 * t_left * (h / 2 - t_top - e_cg_z) ** 2
+        Q_max_x = h * t_left * (w / 2 - e_cg_x - t_left / 2) + \
+                  0.5 * t_top * (w / 2 - t_left - e_cg_x) ** 2 + \
+                  0.5 * t_bot * (w / 2 - t_left - e_cg_x) ** 2
+        self.symbolic_expressions['A_inner'] = A_inner
+        self.symbolic_expressions['Q_max_z'] = Q_max_z
+        self.symbolic_expressions['Q_max_x'] = Q_max_x
         # endregion
 
         self.create_symbolic_expressions(n=n,
@@ -979,8 +1067,12 @@ class BoxBeamRepresentation(SymbolicBeam):
         self.symbolic_functions['Einv'] = Function(self.options['name'] + "Einv", [cs],
                                                    self.symbolic_expressions['Einv'])
 
-        self.symbolic_functions['stress_rec_points'] = Function(self.options['name'] + "stress_rec", [cs],
-                                                   [self.symbolic_expressions['stress_rec_points']])
+        self.symbolic_functions['E'] = Function("E", [cs], self.symbolic_expressions['E'])
+
+        self.symbolic_functions['EA'] = Function("EA", [cs], [EA])
+
+        self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs],
+                                                   [self.symbolic_expressions['corner_points']])
 
         self.create_mass_function()
         return
@@ -989,27 +1081,40 @@ class BoxBeamRepresentation(SymbolicBeam):
 
     def create_symbolic_states(self):
         n = self.options['num_divisions']
+        T = self.options['num_timesteps']
         # State Variables
-        self.symbolics['x'] = SX.sym(self.options['name'] + 'x', 18 * n, 1)
-        self.symbolics['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, 1)
-        self.symbolics['x_slice'] = self.symbolics['x']
-        self.symbolics['xDot_slice'] = self.symbolics['xDot']
+        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T + 1)
+        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T + 1)
+        self.symbolic_expressions['x_slice'] = self.symbolic_expressions['x'][:, 0]
+        self.symbolic_expressions['xDot_slice'] = self.symbolic_expressions['xDot'][:, 0]
         return
 
     def create_mass_function(self):
         SCALE_FACT = 100000
-        n = self.options['num_divisions']
-        cs = SX.sym(self.options['name'] + 'cs', 2 * n)
-        h = cs[0:n]
-        w = cs[n:2 * n]
-        s_0 = SX.sym(self.options['name'] + 's_0', n - 1)
-        A = h * w
-        mu = SX.sym(self.options['name'] + 'mu', n - 1)
-        for i in range(0, n - 1):
-            A1 = A[i]
-            A2 = A[i + 1]
-            mu[i] = self.options['rho'] * (1 / 3) * (A1 + A2 + sqrt(A1 * A2))
-        self.symbolic_expressions['total_mass'] = sum1(mu * s_0) / SCALE_FACT
+
+        cs = self.symbolic_expressions['cs']
+
+        h = self.symbolic_expressions['h']
+        w = self.symbolic_expressions['w']
+        t_top = self.symbolic_expressions['t_top']
+        t_left = self.symbolic_expressions['t_left']
+        t_bot = self.symbolic_expressions['t_bot']
+        t_right = self.symbolic_expressions['t_right']
+
+        n_nodes = self.options['num_divisions']
+
+        s_0 = SX.sym('s_0', n_nodes - 1)
+
+        mu = SX.sym('mu', n_nodes - 1)
+
+        sum_mu = SX.zeros(1)
+        for i in range(0, n_nodes - 1):
+            A1 = (w[i] * h[i] - ((w[i] - t_right[i] - t_left[i]) * (h[i] - t_top[i] - t_bot[i])))
+            A2 = (w[i + 1] * h[i + 1] - ((w[i + 1] - t_right[i + 1] - t_left[i + 1]) * (h[i + 1] - t_top[i + 1] - t_bot[i + 1])))
+            mu[i] = s_0[i] * self.options['rho'] * (1 / 3) * (A1 + A2 + sqrt(A1 * A2))
+            sum_mu = sum_mu + mu[i]
+        # TODO: Look at why 2*scale gives proper weight
+        self.symbolic_expressions['total_mass'] = sum_mu / SCALE_FACT
         self.symbolic_functions['mass'] = Function('mass', [cs, s_0], [self.symbolic_expressions['total_mass']])
         self.symbolic_expressions['mass_jac'] = jacobian(self.symbolic_expressions['total_mass'], cs)
         self.symbolic_functions['mass_jac'] = Function('mass_jac', [cs, s_0], [self.symbolic_expressions['mass_jac']])

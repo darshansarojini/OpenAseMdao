@@ -1,7 +1,8 @@
 import openmdao.api as om
 from casadi import *
 
-from openasemdao.structures.utils.utils import CalcNodalT
+from openasemdao.structures.utils.utils import CalcNodalT, CrossSectionTypes
+from openasemdao.structures.utils.enums import CrossSectionTypes
 
 
 class EulerBernoulliStressModel(om.ExplicitComponent):
@@ -19,7 +20,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         self.options.declare('symbolic_expressions', types=dict)
         self.options.declare('symbolic_stress_functions', types=dict)
 
-        self.options.declare('stress_rec_points')
+        self.options.declare('corner_points')
         self.options.declare('num_timesteps')
 
         # Necessary Beam Characteristics
@@ -41,8 +42,8 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # Time to generate the stress formulas:
         cs = self.options['symbolic_variables']['cs']
         if (self.options['num_cs_variables'] == 2):  # Rectangular beam with 2 degrees of freedom per cross-section h w
-            self.options['stress_rec_points'] = np.zeros((self.options['symbolic_variables']['stress_rec_points'].shape[0], self.options['symbolic_variables']['stress_rec_points'].shape[1]))
-            self.add_input('stress_rec_points', shape=(self.options['symbolic_variables']['stress_rec_points'].shape[0], self.options['symbolic_variables']['stress_rec_points'].shape[1]))
+            self.options['corner_points'] = np.zeros((self.options['symbolic_variables']['corner_points'].shape[0], self.options['symbolic_variables']['corner_points'].shape[1]))
+            self.add_input('corner_points', shape=(self.options['symbolic_variables']['corner_points'].shape[0], self.options['symbolic_variables']['corner_points'].shape[1]))
 
             """
                     The following are the stresses modeled in the rectangular beam:
@@ -58,17 +59,17 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         if self.options['debug_flag']:
             # Point 1
-            assert (inputs['stress_rec_points'][0, :] < 0).all()  # x coordinate must be negative
-            assert (inputs['stress_rec_points'][1, :] > 0).all()  # y coordinate must be positive
+            assert (inputs['corner_points'][0, :] < 0).all()  # x coordinate must be negative
+            assert (inputs['corner_points'][1, :] > 0).all()  # y coordinate must be positive
             # Point 2
-            assert (inputs['stress_rec_points'][2, :] > 0).all()  # x coordinate must be positive
-            assert (inputs['stress_rec_points'][3, :] > 0).all()  # y coordinate must be positive
+            assert (inputs['corner_points'][2, :] > 0).all()  # x coordinate must be positive
+            assert (inputs['corner_points'][3, :] > 0).all()  # y coordinate must be positive
             # Point 3
-            assert (inputs['stress_rec_points'][4, :] > 0).all()  # x coordinate must be positive
-            assert (inputs['stress_rec_points'][5, :] < 0).all()  # y coordinate must be negative
+            assert (inputs['corner_points'][4, :] > 0).all()  # x coordinate must be positive
+            assert (inputs['corner_points'][5, :] < 0).all()  # y coordinate must be negative
             # Point 4
-            assert (inputs['stress_rec_points'][6, :] < 0).all()  # x coordinate must be negative
-            assert (inputs['stress_rec_points'][7, :] < 0).all()  # y coordinate must be negative
+            assert (inputs['corner_points'][6, :] < 0).all()  # x coordinate must be negative
+            assert (inputs['corner_points'][7, :] < 0).all()  # y coordinate must be negative
 
         if self.options['num_cs_variables'] == 2:
             h = inputs['cs'][0:self.options['num_DvCs']]
@@ -77,11 +78,11 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             if np.linalg.norm(h) < np.linalg.norm(w):
                 sigma = self.options['symbolic_stress_functions']['sigma_w'](inputs['x'],
                                                                              inputs['cs'],
-                                                                             inputs['stress_rec_points'])
+                                                                             inputs['corner_points'])
             else:
                 sigma = self.options['symbolic_stress_functions']['sigma_h'](inputs['x'],
                                                                              inputs['cs'],
-                                                                             inputs['stress_rec_points'])
+                                                                             inputs['corner_points'])
             outputs['sigma'] = sigma.full()
 
     def stress_formulae_rect(self, n, T, cs):
@@ -90,7 +91,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         If T = 1, static analysis
         If T > 1, dynamic analysis
         """
-        stress_rec_points = self.options['stress_rec_points']
+        stress_rec_points = self.options['corner_points']
         assert stress_rec_points.shape[1] == n
         assert int(stress_rec_points.shape[0] / 2) == 4, \
             'Implementation right now assumes 4 points at the 4 corners of the box CS'
@@ -310,7 +311,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         If T = 1, static analysis
         If T > 1, dynamic analysis
         """
-        stress_rec_points = self.options['stress_rec_points']
+        stress_rec_points = self.options['corner_points']
         assert stress_rec_points.shape[1] == n_nodes
         assert int(stress_rec_points.shape[0] / 2) == 4, \
             'Implementation right now assumes 4 points at the 4 corners of the box CS'
