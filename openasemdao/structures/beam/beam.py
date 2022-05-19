@@ -961,8 +961,8 @@ class BoxBeamRepresentation(SymbolicBeam):
                   A_sect4 * E_sect4)
         n_ea = e_cg_z
         c_ea = e_cg_x
-        n_ta = SX.zeros(n_nodes)
-        c_ta = SX.zeros(n_nodes)
+        n_ta = SX.zeros(n)
+        c_ta = SX.zeros(n)
         # endregion
 
         # region Bending and Torsional Stiffness
@@ -992,12 +992,12 @@ class BoxBeamRepresentation(SymbolicBeam):
         EIxx = self.options['E'] * Ixx
         EIzz = self.options['E'] * Izz
         EIxz = self.options['E'] * Ixz
-        GJ = (self.options['E'] / (2 * (1 + self.options['nu']))) * J
+        GJ = self.options['G'] * J
         # endregion
 
         # region Axial and Shear Stiffness
-        GKn = (self.options['E'] / (2 * (1 + self.options['nu']))) / 1.2 * np.ones(n)
-        GKc = (self.options['E'] / (2 * (1 + self.options['nu']))) / 1.2 * np.ones(n)
+        GKn = self.options['G'] / 1.2 * np.ones(n)
+        GKc = self.options['G'] / 1.2 * np.ones(n)
         EA = E_sect1 * A_sect1 + E_sect2 * A_sect2 + E_sect3 * A_sect3 + E_sect4 * A_sect4
         self.symbolic_expressions['EA'] = EA
         # endregion

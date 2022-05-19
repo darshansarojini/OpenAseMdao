@@ -1,4 +1,4 @@
-from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentation
+from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentation, BoxBeamRepresentation
 from openasemdao.structures.inputs.inputs import BeamDefinition, PointLoadDefinition, JointDefinition
 from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
@@ -379,5 +379,83 @@ def test_torsional_stress_computation():
     np.testing.assert_almost_equal(np.squeeze(tau_torsion), sigma_actual_torsion)
     pass
 
+def test_box_axial_stress_computation():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 10
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    beam_points[1, :] = np.linspace(0, 15, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+    rect_beam = BeamDefinition('MainWing', beam_point_input, np.array([1, 3, 2]), E=Q_(70e9, 'pascal'),
+                               G=Q_(30e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
 
+    # Test loads for the geometry
+    loads = []
+
+    # Test joints for the geometry
+    joints = []
+
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular')
+
+    sample_beam = BoxBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints,
+                                                        constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
+
+    model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    prob = om.Problem(model)
+    prob.setup()
+
+    # Test the actual result of the solution:
+    r0 = sample_beam.options['r0']
+    th0 = sample_beam.options['th0']
+
+    F = np.zeros((3, r0.shape[1]))
+
+    M = np.zeros((3, r0.shape[1]))
+
+    M[0, :] = np.linspace(1000000, 0, r0.shape[1]) # Some triangular moment
+
+    u = np.zeros((3, r0.shape[1]))
+    omega = np.zeros((3, r0.shape[1]))
+
+    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+
+    x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
+
+    x_0 = np.reshape(x_0, 18 * r0.shape[1])
+    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+
+    # Keeping in mind that the number of sections and design variables is not the same
+
+    h = 0.5*np.ones((1, n_sections_before_joints_loads))
+    w = 3*np.ones((1, n_sections_before_joints_loads))
+
+    cs = np.hstack((h, w))
+
+    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
+
+    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+
+    prob.run_model()
+
+    # Compute expected value of stress:
+
+    h_expr = 0.5 * np.ones((1, r0.shape[1]))
+    w_expr = 3 * np.ones((1, r0.shape[1]))
+
+    I_xx = (w_expr*h_expr**3)/12
+
+    y = h_expr/2
+
+    sigma_expected = M[0, :] * y / I_xx
+
+    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+
+    sigma_actual_tensile = sigma_actual[2*r0.shape[1]:3*r0.shape[1], 1]
+    np.testing.assert_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
+    pass
 

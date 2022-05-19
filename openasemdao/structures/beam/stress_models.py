@@ -1,8 +1,7 @@
 import openmdao.api as om
 from casadi import *
 
-from openasemdao.structures.utils.utils import CalcNodalT, CrossSectionTypes
-from openasemdao.structures.utils.enums import CrossSectionTypes
+from openasemdao.structures.utils.utils import CalcNodalT
 
 
 class EulerBernoulliStressModel(om.ExplicitComponent):
@@ -55,6 +54,13 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
             self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
             self.add_output('sigma', shape=(10*self.options['num_divisions'], self.options['num_timesteps']+1))
+
+        if self.options['num_cs_variables'] == 6:
+            self.options['corner_points'] = np.zeros((self.options['symbolic_variables']['corner_points'].shape[0],
+                                                      self.options['symbolic_variables']['corner_points'].shape[1]))
+            self.add_input('corner_points', shape=(self.options['symbolic_variables']['corner_points'].shape[0],
+                                                   self.options['symbolic_variables']['corner_points'].shape[1]))
+            self.stress_formulae_box(self.options['num_divisions'], self.options['num_timesteps'], cs)
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         if self.options['debug_flag']:
@@ -312,7 +318,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         If T > 1, dynamic analysis
         """
         stress_rec_points = self.options['corner_points']
-        assert stress_rec_points.shape[1] == n_nodes
+        assert stress_rec_points.shape[1] == n
         assert int(stress_rec_points.shape[0] / 2) == 4, \
             'Implementation right now assumes 4 points at the 4 corners of the box CS'
         number_of_stress_points = int(stress_rec_points.shape[0] / 2)
@@ -326,19 +332,6 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
               -                                   -
             4 ------------------------------------- 3
         """
-        # Point 1
-        assert (stress_rec_points[0, :] < 0).all()  # x coordinate must be negative
-        assert (stress_rec_points[1, :] > 0).all()  # y coordinate must be positive
-        # Point 2
-        assert (stress_rec_points[2, :] > 0).all()  # x coordinate must be positive
-        assert (stress_rec_points[3, :] > 0).all()  # y coordinate must be positive
-        # Point 3
-        assert (stress_rec_points[4, :] > 0).all()  # x coordinate must be positive
-        assert (stress_rec_points[5, :] < 0).all()  # y coordinate must be negative
-        # Point 4
-        assert (stress_rec_points[6, :] < 0).all()  # x coordinate must be negative
-        assert (stress_rec_points[7, :] < 0).all()  # y coordinate must be negative
-
         symb_stress_points = SX.sym('stress_pts', stress_rec_points.shape[1], stress_rec_points.shape[0]).T
 
         t_left = cs[0:self.options['num_divisions']]
