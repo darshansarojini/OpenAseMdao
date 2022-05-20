@@ -478,7 +478,7 @@ def test_box_torsion_computation():
     beam_points = np.zeros((3, n_sections_before_joints_loads))
     beam_points[1, :] = np.linspace(0, 1.5, n_sections_before_joints_loads)
     beam_point_input = Q_(beam_points, 'meter')
-    rect_beam = BeamDefinition('MainWing', beam_point_input, np.array([1, 3, 2]), E=Q_(70e9, 'pascal'),
+    rect_beam = BeamDefinition('MainWing', beam_point_input, np.array([1, 3, 2]), E=Q_(75e9, 'pascal'),
                                G=Q_(38e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
 
     # Test loads for the geometry
@@ -509,7 +509,9 @@ def test_box_torsion_computation():
 
     M = np.zeros((3, r0.shape[1]))
 
-    M[0, :] = np.linspace(100, 100, r0.shape[1]) # Some triangular moment
+    Torsion = 100  # N m
+
+    M[1, :] = np.linspace(Torsion, Torsion, r0.shape[1]) # Some constant torsion
 
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
@@ -551,14 +553,16 @@ def test_box_torsion_computation():
     t_right_exprt = 0.003 * np.ones((1, r0.shape[1]))
     t_bot_expr = 0.004 * np.ones((1, r0.shape[1]))
 
-    I_xx = (w_expr*h_expr**3)/12 -((w_expr-t_left_expr-t_right_exprt)*(h_expr-t_top_expr-t_bot_expr)**3)/12
+    A_inner = (h_expr - t_top_expr)*(w_expr - t_right_exprt)
 
-    y = h_expr/2
+    tau_right_theoretical =  Torsion*np.ones((1, r0.shape[1]))/(2*t_right_exprt*A_inner)
 
-    sigma_expected = M[0, :] * y / I_xx
+    tau_top_theoretical = Torsion * np.ones((1, r0.shape[1])) / (2 * t_top_expr * A_inner)
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_tensile = sigma_actual[6*r0.shape[1]:7*r0.shape[1], 1]
-    np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
+    tau_top = sigma_actual[9*r0.shape[1]:10*r0.shape[1], 1]
+    tau_right = sigma_actual[10 * r0.shape[1]:11 * r0.shape[1], 1]
+    np.testing.assert_almost_equal(np.squeeze(tau_right_theoretical), tau_right)
+    np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass

@@ -60,6 +60,14 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                       self.options['symbolic_variables']['corner_points'].shape[1]))
             self.add_input('corner_points', shape=(self.options['symbolic_variables']['corner_points'].shape[0],
                                                    self.options['symbolic_variables']['corner_points'].shape[1]))
+
+            """
+                                The following are the stresses modeled in the rectangular beam:
+                                T x 0n -> 4n : von-mises stress at the corners
+                                T x 4n -> 8n : axial stress at the corners
+                                T x 8n -> 12n : Shear stress at the flange centers
+            """
+
             self.stress_formulae_box(self.options['num_divisions'], self.options['num_timesteps'], cs)
             self.add_output('sigma', shape=(12 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
 
