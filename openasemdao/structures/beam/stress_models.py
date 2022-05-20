@@ -2,6 +2,7 @@ import openmdao.api as om
 from casadi import *
 
 from openasemdao.structures.utils.utils import CalcNodalT
+from openasemdao.structures.utils.cs_variables import BeamCS
 
 
 class EulerBernoulliStressModel(om.ExplicitComponent):
@@ -11,10 +12,9 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         self.options.declare('debug_flag', types=bool, default=False)  # To enable or disable debugging
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
         self.options.declare('num_DvCs', types=int)       # To know the actual number of cross-sectional variables
-        self.options.declare('num_cs_variables', types=int)  # To account for different number of sectional variables
         self.options.declare('symbolic_variables',
                              types=dict)  # Where all the resultant cross-section symbolics come from beam parent
-
+        self.options.declare('beam_shape', types=str)  # To check what beam type is coming through
         # Where helper and needed symbolic expressions (Einv) and values (x) are stored
         self.options.declare('symbolic_expressions', types=dict)
         self.options.declare('symbolic_stress_functions', types=dict)
@@ -36,11 +36,11 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
     def setup(self):
         # Setup all the nice goodies that make this thing work
-        self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_DvCs'])
+        self.add_input('cs', shape=BeamCS[self.options['beam_shape']].value * self.options['num_DvCs'])
         self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
         # Time to generate the stress formulas:
         cs = self.options['symbolic_variables']['cs']
-        if (self.options['num_cs_variables'] == 2):  # Rectangular beam with 2 degrees of freedom per cross-section h w
+        if (self.options['beam_shape'] == "RECTANGULAR"):  # Rectangular beam with 2 degrees of freedom per cross-section h w
             self.options['corner_points'] = np.zeros((self.options['symbolic_variables']['corner_points'].shape[0], self.options['symbolic_variables']['corner_points'].shape[1]))
             self.add_input('corner_points', shape=(self.options['symbolic_variables']['corner_points'].shape[0], self.options['symbolic_variables']['corner_points'].shape[1]))
 
@@ -55,7 +55,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
             self.add_output('sigma', shape=(10*self.options['num_divisions'], self.options['num_timesteps']+1))
 
-        if self.options['num_cs_variables'] == 6:
+        if self.options['beam_shape'] == "BOX":
             self.options['corner_points'] = np.zeros((self.options['symbolic_variables']['corner_points'].shape[0],
                                                       self.options['symbolic_variables']['corner_points'].shape[1]))
             self.add_input('corner_points', shape=(self.options['symbolic_variables']['corner_points'].shape[0],
@@ -78,7 +78,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             assert (inputs['corner_points'][6, :] < 0).all()  # x coordinate must be negative
             assert (inputs['corner_points'][7, :] < 0).all()  # y coordinate must be negative
 
-        if self.options['num_cs_variables'] == 2:
+        if self.options['beam_shape'] == "RECTANGULAR":
             h = inputs['cs'][0:self.options['num_DvCs']]
             w = inputs['cs'][self.options['num_DvCs']:2*self.options['num_DvCs']]
 
@@ -92,7 +92,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                                              inputs['corner_points'])
             outputs['sigma'] = sigma.full()
 
-        if self.options['num_cs_variables'] == 6:
+        if self.options['beam_shape'] == "BOX":
             sigma = self.options['symbolic_stress_functions']['sigma'](inputs['x'],
                                                                          inputs['cs'],
                                                                          inputs['corner_points'])

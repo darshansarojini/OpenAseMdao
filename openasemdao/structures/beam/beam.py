@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
 from casadi import *
 from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
+from openasemdao.structures.utils.cs_variables import BeamCS
 
 
 class BeamInterface(om.ExplicitComponent):
@@ -14,7 +15,7 @@ class BeamInterface(om.ExplicitComponent):
         self.options.declare('delta_s0')           # Needed for the mass computation of the beam
         self.options.declare('num_divisions', types=int)    # Number of cross-sections accounting for modifications
         self.options.declare('num_DvCs', types=int)  # Number of cross-sections that have design variables
-        self.options.declare('num_cs_variables', types=int)  # Number of distinct variables on each cross-section
+        self.options.declare('beam_shape', types=str)  # Type of cross-section. An enumeration pointing to number of independent cs variables
         self.options.declare('symbolic_parent')  # Symbolic expressions that are needed for computations
         self.options.declare('num_timesteps')
         self.options.declare('debug_flag', types=bool, default=False)
@@ -30,8 +31,8 @@ class BeamInterface(om.ExplicitComponent):
 
         # Traditional input outputs:
         self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
-        self.add_input('cs', shape=self.options['num_cs_variables'] * self.options['num_DvCs'])
-        self.add_output('cs_out', shape=self.options['num_cs_variables'] * self.options['num_DvCs'])
+        self.add_input('cs', shape=BeamCS[self.options['beam_shape']].value * self.options['num_DvCs'])
+        self.add_output('cs_out', shape=BeamCS[self.options['beam_shape']].value * self.options['num_DvCs'])
         self.add_output('mass', shape=1)
 
         # Symbolic numerical channels:
@@ -109,6 +110,7 @@ class SymbolicBeam(ABC, om.Group):
         self.options.declare('G', types=float)
         self.options.declare('sigmaY', types=float)
         self.options.declare('num_timesteps', types=int)
+        self.options.declare('beam_shape', types=str)  # To check what beam type is coming through
 
         # Optional stress definition, in case stress analysis is of importance
         self.options.declare('stress_definition', default=None)
@@ -507,15 +509,15 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         # Adding the different common beam properties
         super().setup()
 
-        # Setting up the number of cross-sectional variables
-        num_cs_variables = 2
+        # Specifying the beam shape so that other sub-components know:
+        self.options['beam_shape'] = "RECTANGULAR"
 
         # Create the symbolic function relating inputs and outputs
         self.create_symbolic_function()
 
         # Generating beam interface:
         self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
-                                            symbolic_parent=self.symbolic_functions, num_cs_variables=num_cs_variables,
+                                            symbolic_parent=self.symbolic_functions, beam_shape=self.options['beam_shape'],
                                             num_timesteps=self.options["num_timesteps"],
                                             debug_flag=self.options["debug_flag"], num_DvCs=self.options["num_DvCs"])
         # Adding beam interface
@@ -523,7 +525,6 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
 
         # Check whether the beam was passed a stress definition:
         if not (self.options['stress_definition'] is None):
-            self.options['stress_definition'].options['num_cs_variables'] = num_cs_variables  # height and width in this case
             self.options['stress_definition'].options['debug_flag'] = self.options["debug_flag"]
             self.options['stress_definition'].options['num_DvCs'] = self.options["num_DvCs"]
             self.options['stress_definition'].options['num_divisions'] = self.options["num_divisions"]
@@ -531,6 +532,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             self.options['stress_definition'].options['r0'] = self.options["r0"]
             self.options['stress_definition'].options['th0'] = self.options["th0"]
             self.options['stress_definition'].options['seq'] = self.options["seq"]
+            self.options['stress_definition'].options['beam_shape'] = self.options["beam_shape"]
 
             self.options['stress_definition'].options['E'] = self.options["E"]      # TODO: Do Material model
             self.options['stress_definition'].options['G'] = self.options["G"]
@@ -548,7 +550,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                 for a_constraint in self.constraints:
                     if isinstance(a_constraint, StrenghtAggregatedConstraint):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
-                        a_constraint.options["num_cs_variables"] = num_cs_variables
+                        a_constraint.options["beam_shape"] = self.options["beam_shape"]
                         a_constraint.options["stress_computation"] = self.options['stress_definition']
                         a_constraint.options["debug_flag"] = self.options['debug_flag']
                         self.add_subsystem(a_constraint.options["name"], a_constraint)
@@ -738,15 +740,15 @@ class BoxBeamRepresentation(SymbolicBeam):
         # Adding the different common beam properties
         super().setup()
 
-        # Setting up the number of cross-sectional variables
-        num_cs_variables = 6
+        # Specifying the beam shape so that other sub-components know:
+        self.options['beam_shape'] = "BOX"
 
         # Create the symbolic function relating inputs and outputs
         self.create_symbolic_function()
 
         # Generating beam interface:
         self.beam_interface = BeamInterface(name='DoubleSymmetricBeamInterface', delta_s0=self.options['delta_s0'],
-                                            symbolic_parent=self.symbolic_functions, num_cs_variables=num_cs_variables,
+                                            symbolic_parent=self.symbolic_functions, beam_shape=self.options['beam_shape'],
                                             num_timesteps=self.options["num_timesteps"],
                                             debug_flag=self.options["debug_flag"], num_DvCs=self.options["num_DvCs"])
         # Adding beam interface
@@ -754,7 +756,6 @@ class BoxBeamRepresentation(SymbolicBeam):
 
         # Check whether the beam was passed a stress definition:
         if not (self.options['stress_definition'] is None):
-            self.options['stress_definition'].options['num_cs_variables'] = num_cs_variables  # height and width in this case
             self.options['stress_definition'].options['debug_flag'] = self.options["debug_flag"]
             self.options['stress_definition'].options['num_DvCs'] = self.options["num_DvCs"]
             self.options['stress_definition'].options['num_divisions'] = self.options["num_divisions"]
@@ -762,6 +763,7 @@ class BoxBeamRepresentation(SymbolicBeam):
             self.options['stress_definition'].options['r0'] = self.options["r0"]
             self.options['stress_definition'].options['th0'] = self.options["th0"]
             self.options['stress_definition'].options['seq'] = self.options["seq"]
+            self.options['stress_definition'].options['beam_shape'] = self.options["beam_shape"]
 
             self.options['stress_definition'].options['E'] = self.options["E"]      # TODO: Do Material model
             self.options['stress_definition'].options['G'] = self.options["G"]
@@ -779,7 +781,7 @@ class BoxBeamRepresentation(SymbolicBeam):
                 for a_constraint in self.constraints:
                     if isinstance(a_constraint, StrenghtAggregatedConstraint):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
-                        a_constraint.options["num_cs_variables"] = num_cs_variables
+                        a_constraint.options["beam_shape"] = self.options["beam_shape"]
                         a_constraint.options["stress_computation"] = self.options['stress_definition']
                         a_constraint.options["debug_flag"] = self.options['debug_flag']
                         self.add_subsystem(a_constraint.options["name"], a_constraint)
