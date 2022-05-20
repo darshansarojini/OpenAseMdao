@@ -19,7 +19,7 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
     def setup(self):
         self.stress_input = self.options['stress_computation']
 
-        stress_input = SX.sym('sigma_in', self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[0], self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[1])
+        stress_input = SX.sym('sigma_in', self.stress_input.options['symbolic_stress_functions']['sigma'].size_out(0)[0], self.stress_input.options['symbolic_stress_functions']['sigma'].size_out(0)[1])
 
         # Tensile constraint
 
@@ -41,8 +41,8 @@ class StrenghtAggregatedConstraint(om.ExplicitComponent):
 
         aggregated_stress_constraint_negative = max_stress_constraint_space_n + (1 / self.options['rho_KS']) * log(A_n)
 
-        self.add_input('sigma', shape=(self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[0],
-                                                   self.stress_input.options['symbolic_stress_functions']['sigma_w'].size_out(0)[1]))
+        self.add_input('sigma', shape=(self.stress_input.options['symbolic_stress_functions']['sigma'].size_out(0)[0],
+                                                   self.stress_input.options['symbolic_stress_functions']['sigma'].size_out(0)[1]))
 
         self.add_output('cs_strength', shape=(2, 1))
 

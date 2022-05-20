@@ -434,7 +434,13 @@ def test_box_axial_stress_computation():
     h = 0.5*np.ones((1, n_sections_before_joints_loads))
     w = 3*np.ones((1, n_sections_before_joints_loads))
 
-    cs = np.hstack((h, w))
+    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.05 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.05 * np.ones((1, n_sections_before_joints_loads))
+
+    cs = np.hstack((h, w, t_left, t_top, t_right, t_bot))
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
@@ -447,7 +453,13 @@ def test_box_axial_stress_computation():
     h_expr = 0.5 * np.ones((1, r0.shape[1]))
     w_expr = 3 * np.ones((1, r0.shape[1]))
 
-    I_xx = (w_expr*h_expr**3)/12
+    t_left_expr = 0.1 * np.ones((1, r0.shape[1]))
+    t_top_expr = 0.05 * np.ones((1, r0.shape[1]))
+
+    t_right_exprt = 0.1 * np.ones((1, r0.shape[1]))
+    t_bot_expr = 0.05 * np.ones((1, r0.shape[1]))
+
+    I_xx = (w_expr*h_expr**3)/12 -((w_expr-t_left_expr-t_right_exprt)*(h_expr-t_top_expr-t_bot_expr)**3)/12
 
     y = h_expr/2
 
@@ -455,7 +467,7 @@ def test_box_axial_stress_computation():
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_tensile = sigma_actual[2*r0.shape[1]:3*r0.shape[1], 1]
-    np.testing.assert_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
+    sigma_actual_tensile = sigma_actual[6*r0.shape[1]:7*r0.shape[1], 1]
+    np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
