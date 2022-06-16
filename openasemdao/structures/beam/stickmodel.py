@@ -19,9 +19,6 @@ class SymbolicStickModel(ABC):
         return c_Forces, c_Moments
 
     def ResJac(self, beam_list, X, Xd, X_AC, Forces, Moments, BC, g, element, R_prec):
-        # This script will have the first version of the casadi translation of Resjac.
-        # In this version, a single part only version will be made, to test the
-        # multiple function capabilities, as well as a proof of concept.
         num_variables = 18
         num_nodes = X.size(2)
         Res = SX.sym('Fty', num_variables, num_nodes)
@@ -608,6 +605,8 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.t_kappa_n = t_epsilon
 
     def setup(self):
+        # First, Its necessary to generate all the symbolics necessary for the jointed system to work:
+
         self.create_symbolic_function(self.options['beam_list'], self.options['joint_list'])
 
         # Generate state and force numerical connections:

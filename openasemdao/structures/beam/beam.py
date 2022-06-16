@@ -467,17 +467,20 @@ class SymbolicBeam(ABC, om.Group):
             E[i][2, 1] = 0
             E[i][2, 2] = EIzz[i]
 
-            E_rot[i] = mtimes(T[i], mtimes(E[i], transpose(T[i])))
+            if self.options['beam_type'] == 'Wing':  # Added in case the ticknesses are given on a wing wrt y axis
 
-            E[i][0, 0] = E_rot[i][0, 0]
-            E[i][0, 1] = 0
-            E[i][0, 2] = E_rot[i][0, 2]
-            E[i][1, 0] = 0
-            E[i][1, 1] = GJ[i]
-            E[i][1, 2] = 0
-            E[i][2, 0] = E_rot[i][2, 0]
-            E[i][2, 1] = 0
-            E[i][2, 2] = E_rot[i][2, 2]
+                E_rot[i] = mtimes(T[i], mtimes(E[i], transpose(T[i])))
+
+                E[i][0, 0] = E_rot[i][0, 0]
+                E[i][0, 1] = 0
+                E[i][0, 2] = E_rot[i][0, 2]
+                E[i][1, 0] = 0
+                E[i][1, 1] = GJ[i]
+                E[i][1, 2] = 0
+                E[i][2, 0] = E_rot[i][2, 0]
+                E[i][2, 1] = 0
+                E[i][2, 2] = E_rot[i][2, 2]
+
             Einv[i] = inv(E[i])
         self.symbolic_expressions['Einv'] = Einv
         self.symbolic_expressions['E'] = E
@@ -501,6 +504,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
     def initialize(self):
         # Initializing superclass
         super().initialize()
+        pass
 
     def declare_additional_beam_inputs(self):
         return
