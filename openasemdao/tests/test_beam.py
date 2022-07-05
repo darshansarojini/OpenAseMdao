@@ -646,3 +646,87 @@ def test_box_torsion_computation():
     np.testing.assert_almost_equal(np.squeeze(tau_right_theoretical), tau_right)
     np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass
+
+def test_t_beam_computation():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 7
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L = 10
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    f1 = Q_(np.array([0, 0, 1000]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    # Test joints for the geometry
+    joints = []
+    eta4 = 0.95
+    joint1 = JointDefinition('inner_joint', 'Fuselage', eta4, 'FuseRHT', 0.0)
+    joints.append(joint1)
+    joint2 = JointDefinition('inner_joint', 'Fuselage', eta4, 'FuseLHT', 0.0)
+    joints.append(joint2)
+
+    joint_rhs = []
+    joint_rhs.append(joint1)
+
+    joint_lhs = []
+    joint_lhs.append(joint2)
+
+    # RHS Wing
+    n_sections_before_joints_loads = 6
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 2.5
+    beam_points[0, :] = np.linspace(eta4*L, eta4*L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    RHS_beam = BeamDefinition('FuseRHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
+
+    #LHS Wing
+
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 2.5
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, -L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    LHS_beam = BeamDefinition('FuseLHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'),
+                              G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
+
+
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular')
+
+    # Adding Joints to the stickmodel group
+
+    fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=[], joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                        num_interp_sections=0)
+
+    RHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
+    model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+
+    prob = om.Problem(model)
+    prob.setup()
+
+    pass

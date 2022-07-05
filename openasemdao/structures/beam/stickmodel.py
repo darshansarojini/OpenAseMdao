@@ -254,6 +254,16 @@ class SymbolicStickModel(ABC):
         # It is assumed that the variables are organized such that the Static_x_1
         # (Joint Point 1) comes first and then Static_x_2 (Joint Point 2)
 
+        # JointProp = {}  # Properties:
+        # JointProp['Parent_NodeNum'] = [13, 3, 3, 6, 6]  # Index on the parent where the joint is located
+        # JointProp['Parent_r0'] = [3 x 5 double]  # r_0 where the joint is at the parent level
+        # JointProp['Parent_th0'] = [3 x 5 double]  # th_0 where the joint is at the parent level
+        # JointProp['Parent'] = [0, 0, 0, 1, 1]  # Part index that shows what the parent is, based on the insertion order (starting from 0)
+        # JointProp['Child'] = [1, 2, 3, 4, 5]  # Part index that shows what the child is for every joint (starting from 0)
+        # JointProp['Child_NodeNum'] = [0, 0, 0, 0, 0]  # Node index that shows what the child is for every joint (starting from 0)
+        # JointProp['Child_r0'] = [3 x 5 double]  # r_0 where the joint is at the child level per part
+        # JointProp['Child_th0'] = [3 x 5 double]  # th_0 where the joint is at the child level per part
+
         # Pre-declaring variables
         r_J = SX.zeros(3, 1)
         th_J = SX.zeros(3, 1)
@@ -282,8 +292,8 @@ class SymbolicStickModel(ABC):
             th10 = JointProp['Parent_th0'][:, k]  # stickModel_1.th0(:,NodeNum_JP1)
             th20 = JointProp['Child_th0'][:, k]  # stickModel_2.th0(:,NodeNum_JP2)
 
-            r1 = x[starting_node_parent + 18 * (NodeNum_JP1 - 1) + 0:starting_node_parent + 18 * (NodeNum_JP1 - 1) + 3]
-            th1 = x[starting_node_parent + 18 * (NodeNum_JP1 - 1) + 3:starting_node_parent + 18 * (NodeNum_JP1 - 1) + 6]
+            r1 = X[starting_node_parent + 18 * (NodeNum_JP1 - 1) + 0:starting_node_parent + 18 * (NodeNum_JP1 - 1) + 3]
+            th1 = X[starting_node_parent + 18 * (NodeNum_JP1 - 1) + 3:starting_node_parent + 18 * (NodeNum_JP1 - 1) + 6]
 
             r2 = r20 + r_J
             th2 = th20 + th_J
@@ -309,10 +319,10 @@ class SymbolicStickModel(ABC):
             # region Residual of F&M equations
 
             # Form the required variables
-            Mi1 = x[starting_node_child + 18 * (NodeNum_JP2) + 9:starting_node_child + 18 * (NodeNum_JP2) + 12]
-            Mi = x[starting_node_child + 18 * (NodeNum_JP2 - 1) + 9:starting_node_child + 18 * (NodeNum_JP2 - 1) + 12]
-            Fi1 = x[starting_node_child + 18 * (NodeNum_JP2) + 6:starting_node_child + 18 * (NodeNum_JP2) + 9]
-            Fi = x[starting_node_child + 18 * (NodeNum_JP2 - 1) + 6:starting_node_child + 18 * (NodeNum_JP2 - 1) + 9]
+            Mi1 = X[starting_node_child + 18 * (NodeNum_JP2) + 9:starting_node_child + 18 * (NodeNum_JP2) + 12]
+            Mi = X[starting_node_child + 18 * (NodeNum_JP2 - 1) + 9:starting_node_child + 18 * (NodeNum_JP2 - 1) + 12]
+            Fi1 = X[starting_node_child + 18 * (NodeNum_JP2) + 6:starting_node_child + 18 * (NodeNum_JP2) + 9]
+            Fi = X[starting_node_child + 18 * (NodeNum_JP2 - 1) + 6:starting_node_child + 18 * (NodeNum_JP2 - 1) + 9]
 
 
             # Assumptions (for now)
@@ -651,8 +661,9 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         pass
 
     def solve_nonlinear(self, inputs, outputs, residuals):
-        Integrator = StaticIntegrator(tolerance=1e-9, model=self, inputs=inputs, outputs=outputs)
-        self.apply_nonlinear(inputs, outputs, residuals, None, None)
+        pass
+        # Integrator = StaticIntegrator(tolerance=1e-9, model=self, inputs=inputs, outputs=outputs)
+        # self.apply_nonlinear(inputs, outputs, residuals, None, None)
 
     def create_symbolic_function(self, beam, joints):
         # num_steps = math.floor((self.options['t_final'] - self.options['t_initial']) / self.options['time_step'])

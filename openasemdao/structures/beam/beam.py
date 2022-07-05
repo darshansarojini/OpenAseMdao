@@ -282,7 +282,16 @@ class SymbolicBeam(ABC, om.Group):
                     # Time to create the point with regards to the joint
                     found_lower_point = False
                     joint_location = span * joint_eta  # Either x or y, depending on the type of the beam
-                    if not (1.0 >= joint_eta > 0.0):
+
+                    # Check for additional points:
+                    if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
+                        if(initial_points.shape[1] - np.count_nonzero(initial_points[0, :] - joint_location) > 1):
+                            break
+                    else:
+                        if (initial_points.shape[1] - np.count_nonzero(initial_points[1, :] - joint_location) > 1):
+                            break
+
+                    if not (1.0 >= joint_eta >= 0.0):
                         raise ValueError('Load eta must be between 0 and 1')
                     # Make point easily if eta is 1:
                     if joint_eta == 1.0:
