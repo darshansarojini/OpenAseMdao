@@ -1,12 +1,13 @@
 import openmdao.api as om
 from casadi import *
-from openasemdao.structures.utils.cs_variables import BeamCS
-     
+from openasemdao.structures.utils.beam_categories import BeamCS
+
+
 class StrenghtAggregatedConstraint(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('name', types=str)  # Just to tag the constraint in particular
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
-        self.options.declare('beam_shape', types=str)  # Important when defining the number of total cs variables
+        self.options.declare('beam_shape', types=BeamCS)  # Important when defining the number of total cs variables
         self.options.declare('stress_computation')         # Stress related to the aggregator
         self.options.declare('total_stress_constraint', types=dict)
         self.options.declare('debug_flag', types=bool, default=False)  # To enable or disable debugging

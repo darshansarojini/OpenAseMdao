@@ -4,9 +4,10 @@ from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
 from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
 from openasemdao.structures.beam.stress_models import EulerBernoulliStressModel
+from openasemdao.structures.beam.stickmodel import StaticBeamStickModel
 from openasemdao import Q_
 import numpy as np
-
+from openasemdao.structures.utils.beam_categories import BoundaryType
 
 def test_zero_element_generation():
     model = om.Group()
@@ -15,8 +16,10 @@ def test_zero_element_generation():
     beam_points = np.zeros((3, n_sections_before_joints_loads))
     beam_points[1, :] = np.linspace(0, 15, n_sections_before_joints_loads)
     beam_point_input = Q_(beam_points, 'meter')
-    rect_beam = BeamDefinition('MainWing', beam_point_input, np.array([1, 3, 2]), E=Q_(70e9, 'pascal'),
-                               G=Q_(30e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
+
+    # Example of a complete input for the beam definition:
+    rect_beam = BeamDefinition(identifier='MainWing', points=beam_point_input, orientation=np.array([1, 3, 2]), E=Q_(70e9, 'pascal'),
+                               G=Q_(30e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), bc=BoundaryType.CANTILEVER, num_timesteps=1)
 
     # Test loads for the geometry
     loads = []
@@ -181,22 +184,22 @@ def test_axial_stress_computation():
 
     M = np.zeros((3, r0.shape[1]))
 
-    M[0, :] = np.linspace(1000000, 0, r0.shape[1]) # Some triangular moment
+    M[0, :] = np.linspace(1000000, 0, r0.shape[1])  # Some triangular moment
 
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
     x_0 = np.reshape(x_0, 18 * r0.shape[1])
-    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+    x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
 
-    h = 0.5*np.ones((1, n_sections_before_joints_loads))
-    w = 3*np.ones((1, n_sections_before_joints_loads))
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
 
     cs = np.hstack((h, w))
 
@@ -211,17 +214,18 @@ def test_axial_stress_computation():
     h_expr = 0.5 * np.ones((1, r0.shape[1]))
     w_expr = 3 * np.ones((1, r0.shape[1]))
 
-    I_xx = (w_expr*h_expr**3)/12
+    I_xx = (w_expr * h_expr ** 3) / 12
 
-    y = h_expr/2
+    y = h_expr / 2
 
     sigma_expected = M[0, :] * y / I_xx
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_tensile = sigma_actual[2*r0.shape[1]:3*r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
+
 
 def test_fuse_axial_stress_computation():
     model = om.Group()
@@ -261,22 +265,22 @@ def test_fuse_axial_stress_computation():
 
     M = np.zeros((3, r0.shape[1]))
 
-    M[1, :] = -np.linspace(1000000, 0, r0.shape[1]) # Some triangular moment
+    M[1, :] = -np.linspace(1000000, 0, r0.shape[1])  # Some triangular moment
 
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
     x_0 = np.reshape(x_0, 18 * r0.shape[1])
-    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+    x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
 
-    h = 0.5*np.ones((1, n_sections_before_joints_loads))
-    w = 3*np.ones((1, n_sections_before_joints_loads))
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
 
     cs = np.hstack((h, w))
 
@@ -299,9 +303,10 @@ def test_fuse_axial_stress_computation():
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_tensile = sigma_actual[2*r0.shape[1]:3*r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
+
 
 def test_shear_stress_computation():
     model = om.Group()
@@ -347,15 +352,15 @@ def test_shear_stress_computation():
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
     x_0 = np.reshape(x_0, 18 * r0.shape[1])
-    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+    x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
-    h = 0.65*np.ones((1, n_sections_before_joints_loads))
-    w = 3.25*np.ones((1, n_sections_before_joints_loads))
+    h = 0.65 * np.ones((1, n_sections_before_joints_loads))
+    w = 3.25 * np.ones((1, n_sections_before_joints_loads))
 
     cs = np.hstack((h, w))
 
@@ -370,14 +375,15 @@ def test_shear_stress_computation():
     h_expr = 0.65 * np.ones((1, r0.shape[1]))
     w_expr = 3.25 * np.ones((1, r0.shape[1]))
 
-    sigma_expected = 1.5 * F[2, :] / (h_expr * w_expr)   # For a rectangular section, value of maximum shear
-                                                         # stress will be equal to the 1.5 times of mean shear stress.
+    sigma_expected = 1.5 * F[2, :] / (h_expr * w_expr)  # For a rectangular section, value of maximum shear
+    # stress will be equal to the 1.5 times of mean shear stress.
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_tensile = sigma_actual[9*r0.shape[1]:10*r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[9 * r0.shape[1]:10 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
+
 
 def test_torsional_stress_computation():
     model = om.Group()
@@ -418,20 +424,20 @@ def test_torsional_stress_computation():
 
     M = np.zeros((3, r0.shape[1]))
 
-    M[1, :] = np.linspace(1000000, 0, r0.shape[1])   # Some triangular torsional moment
+    M[1, :] = np.linspace(1000000, 0, r0.shape[1])  # Some triangular torsional moment
 
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
     x_0 = np.reshape(x_0, 18 * r0.shape[1])
-    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+    x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
-    h = 0.5*np.ones(n_sections_before_joints_loads)
-    w = 3.0*np.ones(n_sections_before_joints_loads)
+    h = 0.5 * np.ones(n_sections_before_joints_loads)
+    w = 3.0 * np.ones(n_sections_before_joints_loads)
 
     cs = np.hstack((h, w))
 
@@ -455,9 +461,10 @@ def test_torsional_stress_computation():
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_torsion = sigma_actual[4*r0.shape[1]:5*r0.shape[1], 1]
+    sigma_actual_torsion = sigma_actual[4 * r0.shape[1]:5 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(tau_torsion), sigma_actual_torsion)
     pass
+
 
 def test_box_axial_stress_computation():
     model = om.Group()
@@ -482,7 +489,7 @@ def test_box_axial_stress_computation():
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
 
     sample_beam = BoxBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints,
-                                                        constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
+                                        constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
 
@@ -497,22 +504,22 @@ def test_box_axial_stress_computation():
 
     M = np.zeros((3, r0.shape[1]))
 
-    M[0, :] = np.linspace(1000000, 0, r0.shape[1]) # Some triangular moment
+    M[0, :] = np.linspace(1000000, 0, r0.shape[1])  # Some triangular moment
 
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
     x_0 = np.reshape(x_0, 18 * r0.shape[1])
-    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+    x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
 
-    h = 0.5*np.ones((1, n_sections_before_joints_loads))
-    w = 3*np.ones((1, n_sections_before_joints_loads))
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
 
     t_left = 0.1 * np.ones((1, n_sections_before_joints_loads))
     t_top = 0.05 * np.ones((1, n_sections_before_joints_loads))
@@ -539,17 +546,18 @@ def test_box_axial_stress_computation():
     t_right_exprt = 0.1 * np.ones((1, r0.shape[1]))
     t_bot_expr = 0.05 * np.ones((1, r0.shape[1]))
 
-    I_xx = (w_expr*h_expr**3)/12 -((w_expr-t_left_expr-t_right_exprt)*(h_expr-t_top_expr-t_bot_expr)**3)/12
+    I_xx = (w_expr * h_expr ** 3) / 12 - ((w_expr - t_left_expr - t_right_exprt) * (h_expr - t_top_expr - t_bot_expr) ** 3) / 12
 
-    y = h_expr/2
+    y = h_expr / 2
 
     sigma_expected = M[0, :] * y / I_xx
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    sigma_actual_tensile = sigma_actual[6*r0.shape[1]:7*r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[6 * r0.shape[1]:7 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
+
 
 def test_box_torsion_computation():
     model = om.Group()
@@ -574,7 +582,7 @@ def test_box_torsion_computation():
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
 
     sample_beam = BoxBeamRepresentation(beam_definition=rect_beam, applied_loads=loads, joints=joints,
-                                                        constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
+                                        constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
 
@@ -591,17 +599,17 @@ def test_box_torsion_computation():
 
     Torsion = 100  # N m
 
-    M[1, :] = np.linspace(Torsion, Torsion, r0.shape[1]) # Some constant torsion
+    M[1, :] = np.linspace(Torsion, Torsion, r0.shape[1])  # Some constant torsion
 
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0*F, 0*M, u, omega)))
+    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
 
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
     x_0 = np.reshape(x_0, 18 * r0.shape[1])
-    x_eval = np.reshape(x_eval, 18*r0.shape[1])
+    x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
 
@@ -633,19 +641,20 @@ def test_box_torsion_computation():
     t_right_exprt = 0.003 * np.ones((1, r0.shape[1]))
     t_bot_expr = 0.004 * np.ones((1, r0.shape[1]))
 
-    A_inner = (h_expr - t_top_expr)*(w_expr - t_right_exprt)
+    A_inner = (h_expr - t_top_expr) * (w_expr - t_right_exprt)
 
-    tau_right_theoretical =  Torsion*np.ones((1, r0.shape[1]))/(2*t_right_exprt*A_inner)
+    tau_right_theoretical = Torsion * np.ones((1, r0.shape[1])) / (2 * t_right_exprt * A_inner)
 
     tau_top_theoretical = Torsion * np.ones((1, r0.shape[1])) / (2 * t_top_expr * A_inner)
 
     sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
 
-    tau_top = sigma_actual[9*r0.shape[1]:10*r0.shape[1], 1]
+    tau_top = sigma_actual[9 * r0.shape[1]:10 * r0.shape[1], 1]
     tau_right = sigma_actual[10 * r0.shape[1]:11 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(tau_right_theoretical), tau_right)
     np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass
+
 
 def test_t_beam_computation():
     model = om.Group()
@@ -657,7 +666,7 @@ def test_t_beam_computation():
     beam_point_input = Q_(beam_points, 'meter')
 
     fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
-                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.CANTILEVER)
 
     # Test loads for the geometry
     loads = []
@@ -671,9 +680,9 @@ def test_t_beam_computation():
     # Test joints for the geometry
     joints = []
     eta4 = 0.95
-    joint1 = JointDefinition('inner_joint', 'Fuselage', eta4, 'FuseRHT', 0.0)
+    joint1 = JointDefinition('Fuse_to_RHT', 'Fuselage', eta4, 'FuseRHT', 0.0)
     joints.append(joint1)
-    joint2 = JointDefinition('inner_joint', 'Fuselage', eta4, 'FuseLHT', 0.0)
+    joint2 = JointDefinition('Fuse_to_LHT', 'Fuselage', eta4, 'FuseLHT', 0.0)
     joints.append(joint2)
 
     joint_rhs = []
@@ -686,14 +695,14 @@ def test_t_beam_computation():
     n_sections_before_joints_loads = 6
     beam_points = np.zeros((3, n_sections_before_joints_loads))
     L_tail = 2.5
-    beam_points[0, :] = np.linspace(eta4*L, eta4*L, n_sections_before_joints_loads)
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
     beam_points[1, :] = np.linspace(0, L_tail, n_sections_before_joints_loads)
     beam_point_input = Q_(beam_points, 'meter')
 
     RHS_beam = BeamDefinition('FuseRHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'),
-                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
+                              G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
 
-    #LHS Wing
+    # LHS Wing
 
     beam_points = np.zeros((3, n_sections_before_joints_loads))
     L_tail = 2.5
@@ -702,8 +711,7 @@ def test_t_beam_computation():
     beam_point_input = Q_(beam_points, 'meter')
 
     LHS_beam = BeamDefinition('FuseLHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'),
-                              G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1)
-
+                              G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
 
     # Some constraint
     str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
@@ -714,7 +722,7 @@ def test_t_beam_computation():
     # Adding Joints to the stickmodel group
 
     fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=[], joints=joints, constraints=[str_constraint], stress_definition=stress_model,
-                                                        num_interp_sections=0)
+                                                     num_interp_sections=0)
 
     RHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint], stress_definition=stress_model,
                                                      num_interp_sections=0)
@@ -722,9 +730,12 @@ def test_t_beam_computation():
     LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint], stress_definition=stress_model,
                                                      num_interp_sections=0)
 
+    T_stickmodel = StaticBeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
     model.add_subsystem(name='Fuselage', subsys=fuselage)
     model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
     model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
 
     prob = om.Problem(model)
     prob.setup()

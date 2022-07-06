@@ -1,12 +1,13 @@
 import openmdao.api as om
 from openasemdao import Q_
+from openasemdao.structures.utils.beam_categories import BoundaryType
 
 class BeamDefinition:
     def __init__(self, identifier,
                  points: Q_, orientation,
                  E: Q_, G: Q_, rho: Q_,
                  sigmaY: Q_, rho_KS:float=70.0,
-                 bc:str='Cantilever', num_timesteps=1):
+                 bc: BoundaryType=BoundaryType.CANTILEVER, num_timesteps=1):
         # To provide parameters to the constructor WITH units please use the following format:
         # E = Q_(E_val, 'pascal') -> beam1 = inputs.BeamDefinition(...,...,E,...)
 

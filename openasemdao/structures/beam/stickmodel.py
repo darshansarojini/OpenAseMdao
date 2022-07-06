@@ -6,13 +6,15 @@ import numpy as np
 
 from openasemdao.structures.utils.utils import CalcNodalT
 
+
 class SymbolicStickModel(ABC):
 
-    def AddJointConcLoads(self, x, JointProp, c_Forces, c_Moments):
-        n = (x.shape[0] - 12*JointProp['Parent'].shape[1]) / 18
+    @staticmethod
+    def AddJointConcLoads(X, JointProp, c_Forces, c_Moments):
+        n = int((X.shape[0] - 12 * len(JointProp['Parent']))/ 18)
         for k in range(0, JointProp['Parent'].shape[1]):
-            F_J = x[18 * (n) + 6 + 12 * (k - 1): 18 * (n) + 9 + 12 * (k - 1)]
-            M_J = x[18 * (n) + 9 + 12 * (k - 1): 18 * (n) + 12 + 12 * (k - 1)]
+            F_J = X[18 * n + 6 + 12 * (k - 1): 18 * n + 9 + 12 * (k - 1)]
+            M_J = X[18 * n + 9 + 12 * (k - 1): 18 * n + 12 + 12 * (k - 1)]
             curr_low_bound = c_Forces['inter_node_lim'][JointProp['Parent'][k], 0]    # Get the location of parent start in forces
             c_Forces['delta_Fapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k] - 1] = c_Forces['delta_Fapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k] - 1] + F_J
             c_Moments['delta_Mapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k] - 1] = c_Moments['delta_Mapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k] - 1] + M_J
@@ -413,8 +415,8 @@ class SymbolicStickModel(ABC):
 
         n = beam_list['r0'].size(2)
         for k in range(0, JointProp['Child'].shape[2]):
-            r_J = X[18 * (n) + 0 + 12 * (k - 1): 18 * (n) + 3 + 12 * (k - 1)]
-            th_J = X[18 * (n) + 3 + 12 * (k - 1): 18 * (n) + 6 + 12 * (k - 1)]
+            r_J = X[18 * n + 0 + 12 * (k - 1): 18 * n + 3 + 12 * (k - 1)]
+            th_J = X[18 * n + 3 + 12 * (k - 1): 18 * n + 6 + 12 * (k - 1)]
             child_joint = JointProp['Child'][k]
             starting_node = 18 * (beam_list.options['node_lim'][child_joint, 0] - 1)        # ZERO entry. Where the part residual entry starts
             Residuals[starting_node+18*(JointProp['Child_NodeNum'][k]-0)+0:starting_node+18*(JointProp['Child_NodeNum'][k]-1)+3] = X[starting_node+18*(JointProp['Child_NodeNum'][k]-1)+0:starting_node+18*(JointProp['Child_NodeNum'][k]-1)+3]-JointProp['Child_r0'][:, k]-r_J
@@ -598,14 +600,16 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.options.declare('load_factor', types=float)
         self.options.declare('beam_list')
         self.options.declare('joint_reference')
-        self.options.declare('beam_reference')
+        # Generated structures:
+        self.beam_reference = {}
+        self.JointProp = {}
         self.symbolics = {}
         self.symbolic_functions = {}
         self.symbolic_expressions = {}
         self.seq = []
 
-        t_gamma = 0.1  # both values were 0.03
-        t_epsilon = 0.1
+        t_gamma = 0.03  # Default values are 0.03
+        t_epsilon = 0.03
 
         self.t_gamma_c = t_gamma
         self.t_epsilon_s = t_epsilon
@@ -615,9 +619,9 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.t_kappa_n = t_epsilon
 
     def setup(self):
-        # First, Its necessary to generate all the symbolics necessary for the jointed system to work:
+        # First, It's necessary to generate all the symbolics necessary for the jointed system to work:
 
-        self.create_symbolic_function(self.options['beam_list'], self.options['joint_list'])
+        self.create_symbolic_function(self.options['beam_list'], self.options['joint_reference'])
 
         # Generate state and force numerical connections:
         n = math.floor(self.symbolic_expressions['Residual'].shape[0] / 18)
@@ -628,7 +632,7 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.add_input('forces_conc', shape=3 * (n - 1))
         self.add_input('moments_conc', shape=3 * (n - 1))
 
-        self.add_input('cs', shape=self.options['beam_reference'].symbolics['cs'].shape[0])
+        self.add_input('cs', shape=self.beam_reference['symbolics']['cs'].shape[0])
 
         # Add the outputs from this stickmodel class (just a single beam)
         self.add_output('x', shape=self.symbolic_expressions['Residual'].shape[0])
@@ -665,10 +669,138 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         # Integrator = StaticIntegrator(tolerance=1e-9, model=self, inputs=inputs, outputs=outputs)
         # self.apply_nonlinear(inputs, outputs, residuals, None, None)
 
-    def create_symbolic_function(self, beam, joints):
-        # num_steps = math.floor((self.options['t_final'] - self.options['t_initial']) / self.options['time_step'])
+    def create_symbolic_function(self, beams, joints):
+
+        # Procedure for itemization of beam:
+
+        # Relevant Expressions: cs, x, xDot, x_slice, xDot_slice, D, oneover, mu, i_matrix, delta_r_CG_tilde, Einv, E, EA, forces_dist, moments_dist, forces_conc, moments_conc
+        variable_categories = ['cs', 'x', 'xDot', 'x_slice', 'xDot_slice', 'D', 'oneover', 'mu', 'i_matrix', 'delta_r_CG_tilde', 'Einv', 'E', 'EA', 'forces_dist', 'moments_dist',
+                                 'forces_conc', 'moments_conc', 'r0', 'th0', 'delta_s0', 'BC']
+        variable_types = [0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 3]    # 0: SX, 1: list
+
+        self.beam_reference['cs'] = {}
+        self.beam_reference['x'] = {}
+        self.beam_reference['xDot'] = {}
+        self.beam_reference['x_slice'] = {}
+        self.beam_reference['xDot_slice'] = {}
+        self.beam_reference['D'] = []
+        self.beam_reference['oneover'] = []
+        self.beam_reference['mu'] = {}
+        self.beam_reference['i_matrix'] = []
+        self.beam_reference['delta_r_CG_tilde'] = []
+        self.beam_reference['Einv'] = []
+        self.beam_reference['E'] = []
+        self.beam_reference['EA'] = {}
+        self.beam_reference['forces_dist'] = {}
+        self.beam_reference['moments_dist'] = {}
+        self.beam_reference['forces_conc'] = {}
+        self.beam_reference['moments_conc'] = {}
+        self.beam_reference['r0'] = []
+        self.beam_reference['th0'] = []
+        self.beam_reference['delta_s0'] = []
+        self.beam_reference['BC'] = {}
+
+        # Additional Elements:
+        self.beam_reference['node_lim'] = np.zeros((len(beams), 2), dtype=int)
+        self.beam_reference['inter_node_lim'] = np.zeros((len(beams), 2), dtype=int)
+        self.beam_reference['n'] = 0
+        self.beam_reference['n_inter'] = 0
+
+        beam_number = 0
+        for a_beam in beams:
+            # Accumulated quantities:
+            self.beam_reference['node_lim'][beam_number, 0] = self.beam_reference['n']
+            self.beam_reference['inter_node_lim'][beam_number, 0] = self.beam_reference['n_inter']
+            self.beam_reference['n'] += a_beam.symbolic_expressions['EA'].size()[0]
+            self.beam_reference['n_inter'] += a_beam.symbolic_expressions['mu'].size()[0]
+            self.beam_reference['node_lim'][beam_number, 1] = self.beam_reference['n']
+            self.beam_reference['inter_node_lim'][beam_number, 1] = self.beam_reference['n_inter']
+            # Inherited quantities:
+            for a_variable_index in range(len(variable_categories)):
+                if variable_types[a_variable_index] == 0:
+                    if not isinstance(self.beam_reference[variable_categories[a_variable_index]], SX):
+                        self.beam_reference[variable_categories[a_variable_index]] = a_beam.symbolic_expressions[variable_categories[a_variable_index]]
+                    else:
+                        if a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[0] > a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[1]:
+                            # Vertically oriented vector
+                            self.beam_reference[variable_categories[a_variable_index]] = vertcat(self.beam_reference[variable_categories[a_variable_index]],
+                                                                                                     a_beam.symbolic_expressions[variable_categories[a_variable_index]])
+                        else:
+                            # Horizontally oriented vector
+                            self.beam_reference[variable_categories[a_variable_index]] = horzcat(self.beam_reference[variable_categories[a_variable_index]],
+                                                                                                 a_beam.symbolic_expressions[variable_categories[a_variable_index]])
+                else:
+                    if variable_types[a_variable_index] == 1:
+                        # List
+                        self.beam_reference[variable_categories[a_variable_index]] += a_beam.symbolic_expressions[variable_categories[a_variable_index]]
+                    else:
+                        # Boundary Condition
+                        if variable_categories[a_variable_index] == 'BC':
+                            self.beam_reference[variable_categories[a_variable_index]][beam_number] = {}
+                            self.beam_reference[variable_categories[a_variable_index]][beam_number]['root'] = a_beam.BC['root']
+                            self.beam_reference[variable_categories[a_variable_index]][beam_number]['tip'] = a_beam.BC['tip']
+                        else:
+                            # Numpy Array
+                            if not isinstance(self.beam_reference[variable_categories[a_variable_index]], np.ndarray):
+                                self.beam_reference[variable_categories[a_variable_index]] = a_beam.options[variable_categories[a_variable_index]]
+                            else:
+                                self.beam_reference[variable_categories[a_variable_index]] = np.hstack((self.beam_reference[variable_categories[a_variable_index]], a_beam.options[variable_categories[a_variable_index]]))
+            beam_number += 1
+
+        # Procedure for Itemization of Joints:
+        if len(joints) > 0:
+            self.JointProp['Parent_NodeNum'] = []
+            self.JointProp['Parent_r0'] = np.zeros((3, len(joints)))
+            self.JointProp['Parent_th0'] = np.zeros((3, len(joints)))
+            self.JointProp['Parent'] = []
+            self.JointProp['Child'] = []
+            self.JointProp['Child_NodeNum'] = []
+            self.JointProp['Child_r0'] = np.zeros((3, len(joints)))
+            self.JointProp['Child_th0'] = np.zeros((3, len(joints)))
+
+            joint_number = 0
+            for a_joint in joints:
+                # The originating joint element is a much simpler object with just parent name, child name, and eta
+                beam_number = 0
+                for a_beam in beams:
+                    if a_joint.parent_beam == a_beam.name:
+                        self.JointProp['Parent'].append(beam_number)
+
+                        main_direction = 1
+                        if np.array_equal(a_beam.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
+                            main_direction = 0
+                        span_eta = a_joint.parent_eta*(a_beam.options['r0'][main_direction, -1] - a_beam.options['r0'][main_direction, 0])
+                        search_span = a_beam.options['r0'][main_direction, :]
+                        result = np.where(abs(search_span - span_eta) < 1e-5)
+                        self.JointProp['Parent_NodeNum'].append(result[0][0])
+                        self.JointProp['Parent_r0'][:, joint_number] = a_beam.options['r0'][:, result[0][0]]
+                        self.JointProp['Parent_th0'][:, joint_number] = a_beam.options['th0'][:, result[0][0]]
+
+                    if a_joint.child_beam == a_beam.name:
+                        self.JointProp['Child'].append(beam_number)
+
+                        main_direction = 1
+                        if np.array_equal(a_beam.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
+                            main_direction = 0
+                        span_eta = a_joint.child_eta * (a_beam.options['r0'][main_direction, -1] - a_beam.options['r0'][main_direction, 0])
+                        search_span = a_beam.options['r0'][main_direction, :]
+                        result = np.where(abs(search_span - span_eta) < 1e-5)
+                        self.JointProp['Child_NodeNum'].append(result[0][0])
+                        self.JointProp['Child_r0'][:, joint_number] = a_beam.options['r0'][:, result[0][0]]
+                        self.JointProp['Child_th0'][:, joint_number] = a_beam.options['th0'][:, result[0][0]]
+
+                    beam_number += 1
+
+                # Add new columns for the symbolic state vectors
+                self.beam_reference['x'] = vertcat(self.beam_reference['x'], SX.sym(a_joint.joint_label+'state', 12, beams[0].options['num_timesteps']+1))
+                self.beam_reference['xDot'] = vertcat(self.beam_reference['xDot'], SX.sym(a_joint.joint_label + 'stateD', 12, beams[0].options['num_timesteps']+1))
+                self.beam_reference['x_slice'] = vertcat(self.beam_reference['x_slice'], SX.sym(a_joint.joint_label+'state_s', 12, 1))
+                self.beam_reference['xDot_slice'] = vertcat(self.beam_reference['xDot_slice'], SX.sym(a_joint.joint_label + 'state_s_D', 12, 1))
+
+                joint_number += 1
         g = np.zeros(3)
         g[2] = 9.81
+
         R_prec = np.ones(12)
         R_prec[0] = 1e-3
         R_prec[1] = 1e-5
@@ -684,27 +816,31 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         R_prec[11] = 1e0
         self.g = -self.options['load_factor'] * g
 
-        nodes = beam.options['num_divisions']
+        nodes = self.beam_reference['n']
 
         self.symbolics['Xac'] = SX.sym('Xac', 18)
 
+        # Starting resjac multipart
+
         # Generate force/moment dictionaries for resjac:
         Forces = {}
-        Forces['inter_node_lim'] = np.asarray([[0, nodes - 1]])
-        Forces['node_lim'] = np.asarray([[0, nodes - 1]])
-        Forces['delta_Fapplied'] = beam.symbolics['forces_conc']
-        Forces['f_aero'] = beam.symbolics['forces_dist']
+        Forces['inter_node_lim'] = self.beam_reference['inter_node_lim']
+        Forces['node_lim'] = self.beam_reference['node_lim']
+        Forces['delta_Fapplied'] = self.beam_reference['forces_conc']
+        Forces['f_aero'] = self.beam_reference['forces_dist']
         Moments = {}
-        Moments['inter_node_lim'] = np.asarray([[0, nodes - 1]])
-        Moments['node_lim'] = np.asarray([[0, nodes - 1]])
-        Moments['delta_Mapplied'] = beam.symbolics['moments_conc']
-        Moments['m_aero'] = beam.symbolics['moments_dist']
+        Moments['inter_node_lim'] = self.beam_reference['inter_node_lim']
+        Moments['node_lim'] = self.beam_reference['node_lim']
+        Moments['delta_Mapplied'] = self.beam_reference['moments_conc']
+        Moments['m_aero'] = self.beam_reference['moments_dist']
 
-        # Gather Boundary Conditions:
-        self.symbolic_expressions['Residual'] = self.ResJac(beam, reshape(beam.symbolics['x_slice'], (18, nodes)),
-                                                            reshape(beam.symbolics['xDot_slice'], (18, nodes)),
-                                                            self.symbolics['Xac'], Forces, Moments, beam.BC, self.g, 0,
-                                                            R_prec)
+        self.symbolic_expressions['Residual'] = self.ResJac_Multipart(stickModel=self.beam_reference, Xd=self.beam_reference['xDot_slice'], X_AC=self.symbolics['Xac'],
+                                                                      Forces=Forces, Moments=Moments,
+                                                                      BC=self.beam_reference['BC'], g=self.g, JointProp=self.JointProp, X=self.beam_reference['x_slice'],
+                                                                      Rprec=R_prec)
+
+        # Gather Functions:
+
         self.symbolic_expressions['Residual'] = reshape(self.symbolic_expressions['Residual'], (18*nodes, 1))
         self.symbolic_functions['Residuals'] = Function("Residuals", [beam.symbolics['x_slice'], beam.symbolics['xDot_slice'],
                                                                       self.symbolics['Xac'],
@@ -740,44 +876,44 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
                                                         ['x', 'xDot', 'Xac', 'fDist', 'mDist', 'fConc', 'mConc', 'csDVs'],
                                                         ['r'])
 
-
-    def ResJac_Multipart(self, Xd, X_AC, Forces, Moments, BC, g, JointProp, X, Rprec):
+    @staticmethod
+    def ResJac_Multipart(stickModel, Xd, X_AC, Forces, Moments, BC, g, JointProp, X, Rprec):
         # Initialize Macro-Structure
         Residuals = SX.sym('Res', Xd.shape[0])
 
         # Generate holders for the forces that will get modified due to the Joint Residuals:
-        c_Forces = {}
-        c_Forces['f_aero'] = Forces['f_aero']
-        c_Forces['delta_Fapplied'] = SX.zeros(3, Forces['delta_Fapplied'].shape[1])
+        c_Forces = Forces
+        # c_Forces['f_aero'] = Forces['f_aero']
+        # c_Forces['delta_Fapplied'] = SX.zeros(3, Forces['delta_Fapplied'].shape[1])
 
-        c_Moments = {}
-        c_Moments['m_aero'] = Moments['m_aero']
-        c_Moments['delta_Mapplied'] = SX.zeros(3, Moments['delta_Mapplied'].shape[1])
+        c_Moments = Moments
+        # c_Moments['m_aero'] = Moments['m_aero']
+        # c_Moments['delta_Mapplied'] = SX.zeros(3, Moments['delta_Mapplied'].shape[1])
 
-        # Pass constant values into the holders from the point loads, different from the aero loads:
-        c_Forces['delta_Fapplied'] = c_Forces['delta_Fapplied'] + Forces['delta_Fapplied']
-        c_Forces['node_lim'] = Forces['node_lim']
-        c_Forces['inter_node_lim'] = Forces['inter_node_lim']
-
-        c_Moments['delta_Mapplied'] = c_Moments['delta_Mapplied'] + Moments['delta_Mapplied']
-        c_Moments['node_lim'] = Moments['node_lim']
-        c_Moments['inter_node_lim'] = Moments['inter_node_lim']
+        # # Pass constant values into the holders from the point loads, different from the aero loads:
+        # c_Forces['delta_Fapplied'] = c_Forces['delta_Fapplied'] + Forces['delta_Fapplied']
+        # c_Forces['node_lim'] = Forces['node_lim']
+        # c_Forces['inter_node_lim'] = Forces['inter_node_lim']
+        #
+        # c_Moments['delta_Mapplied'] = c_Moments['delta_Mapplied'] + Moments['delta_Mapplied']
+        # c_Moments['node_lim'] = Moments['node_lim']
+        # c_Moments['inter_node_lim'] = Moments['inter_node_lim']
 
         if len(JointProp) > 0:
             #  Now lets run through each joint (all at once) and add the forces that correspond to the parent joint part
-            c_Forces, c_Moments = self.AddJointConcLoads(X, JointProp, c_Forces, c_Moments)
+            c_Forces, c_Moments = StaticBeamStickModel.AddJointConcLoads(X, JointProp, c_Forces, c_Moments)
 
         # Running individual elements
         n = 0
         for i in range(0, int(len(self.seq)/3)):
-            n_element = self.options['beam_reference']['node_lim'][i, 1] - self.options['beam_reference']['node_lim'][i, 0] + 1
-            Residuals[18 * n + 1: 18 * (n + n_element)] = self.ResJac(self.options['beam_reference'], np.reshape(X[18*n+1:18*(n+n_element)], [18,n_element]), np.reshape(Xd[18*n+1:18*(n+n_element)],[18,n_element]), X_AC, c_Forces, c_Moments, BC, g, i, Rprec)
+            n_element = self.beam_reference['node_lim'][i, 1] - self.beam_reference['node_lim'][i, 0] + 1
+            Residuals[18 * n + 1: 18 * (n + n_element)] = self.ResJac(self.beam_reference, np.reshape(X[18*n+1:18*(n+n_element)], [18,n_element]), np.reshape(Xd[18*n+1:18*(n+n_element)],[18,n_element]), X_AC, c_Forces, c_Moments, BC, g, i, Rprec)
             n = n + n_element
 
         if len(JointProp) > 0:
             # Modify Joint 2 Equations
-            Residuals = self.ModifyJointPoint2Residuals(self.options['beam_reference'], Residuals, X, JointProp)
+            Residuals = self.ModifyJointPoint2Residuals(self.beam_reference, Residuals, X, JointProp)
             # Run joint Residuals:
-            Residuals = self.JoinResJac(Residuals, self.options['beam_reference'], JointProp, X)
+            Residuals = self.JoinResJac(Residuals, self.beam_reference, JointProp, X)
 
         return Residuals

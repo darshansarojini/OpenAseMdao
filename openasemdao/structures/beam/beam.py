@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
 from casadi import *
 from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
-from openasemdao.structures.utils.cs_variables import BeamCS
+from openasemdao.structures.utils.beam_categories import BeamCS, BoundaryType, SectionType
 
 
 class BeamInterface(om.ExplicitComponent):
@@ -14,8 +14,8 @@ class BeamInterface(om.ExplicitComponent):
         self.options.declare('name', types=str)    # Name of the beam interface (not modifiable to the user)
         self.options.declare('delta_s0')           # Needed for the mass computation of the beam
         self.options.declare('num_divisions', types=int)    # Number of cross-sections accounting for modifications
-        self.options.declare('num_DvCs', types=int)  # Number of cross-sections that have design variables
-        self.options.declare('beam_shape', types=str)  # Type of cross-section. An enumeration pointing to number of independent cs variables
+        self.options.declare('num_DvCs', types=int)    # Number of cross-sections that have design variables
+        self.options.declare('beam_shape', types=BeamCS)  # Type of cross-section. An enumeration pointing to number of independent cs variables
         self.options.declare('symbolic_parent')  # Symbolic expressions that are needed for computations
         self.options.declare('num_timesteps')
         self.options.declare('debug_flag', types=bool, default=False)
@@ -31,8 +31,8 @@ class BeamInterface(om.ExplicitComponent):
 
         # Traditional input outputs:
         self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
-        self.add_input('cs', shape=BeamCS[self.options['beam_shape']].value * self.options['num_DvCs'])
-        self.add_output('cs_out', shape=BeamCS[self.options['beam_shape']].value * self.options['num_DvCs'])
+        self.add_input('cs', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
+        self.add_output('cs_out', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
         self.add_output('mass', shape=1)
 
         # Symbolic numerical channels:
@@ -103,14 +103,14 @@ class SymbolicBeam(ABC, om.Group):
         self.options.declare("applied_loads", default=[])
         self.options.declare("joints", default=[])
         self.options.declare('beam_type', values=('Fuselage', 'Wing'))
-        self.options.declare('beam_bc', types=str)
+        self.options.declare('beam_bc', types=BoundaryType)
         self.options.declare('debug_flag', types=bool, default=False)
         self.options.declare('E', types=float)
         self.options.declare('rho', types=float)
         self.options.declare('G', types=float)
         self.options.declare('sigmaY', types=float)
         self.options.declare('num_timesteps', types=int)
-        self.options.declare('beam_shape', types=str)  # To check what beam type is coming through
+        self.options.declare('beam_shape', types=BeamCS)  # To check what beam type is coming through
 
         # Optional stress definition, in case stress analysis is of importance
         self.options.declare('stress_definition', default=None)
@@ -170,8 +170,6 @@ class SymbolicBeam(ABC, om.Group):
 
         self.options['num_DvCs'] = initial_points.shape[1]  # Number of cross-sections with design variables
 
-
-
         # Get basic span value:
 
         if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
@@ -181,19 +179,15 @@ class SymbolicBeam(ABC, om.Group):
             span = initial_points[1, -1] - initial_points[1, 0]
             self.options['beam_type'] = 'Wing'
 
-        section_types = ['cs', 'interp', 'force', 'joint']
-
         num_total_sections = self.options['num_DvCs'] + (self.options['num_DvCs'] - 1) * self.options['num_interp_sections']
 
         self.options['section_characteristics'] = []
 
         for i in range(0, num_total_sections):
             if i % (self.options['num_interp_sections'] + 1) == 0:
-                self.options['section_characteristics'].append(section_types[0])
+                self.options['section_characteristics'].append(SectionType.CS)
             else:
-                self.options['section_characteristics'].append(section_types[1])
-
-
+                self.options['section_characteristics'].append(SectionType.INTERP)
 
         # Modify number of initial points with the specified number of interpolated sections:
 
@@ -209,6 +203,11 @@ class SymbolicBeam(ABC, om.Group):
         recorded_load_points = []
 
         # Start with loads:
+
+        # These in case of point loads at the tip
+        edge_force = np.zeros(3)
+        edge_moment = np.zeros(3)
+
         if len(applied_loads) > 0:
             for a_load in applied_loads:
                 found_lower_point = False
@@ -218,19 +217,19 @@ class SymbolicBeam(ABC, om.Group):
                     raise ValueError('Load eta must be between 0 and 1')
                 # Make point easily if eta is 1:
                 if a_load.eta == 1.0:
-                    last_slice = np.copy(initial_points[:, -1])
-                    initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))  #TODO: make load be a BC Load
-                    self.options['section_characteristics'].append(section_types[2])
+                    # The tip load will not add nodes. Rather, it will add a boundary condition value
+                    edge_force += np.squeeze(a_load.vector_force.magnitude)
+                    edge_moment += np.squeeze(a_load.vector_moment.magnitude)
                     # Finally add the load subsystem to the beam:
                     self.add_subsystem(a_load.load_label, a_load.component)
                     continue
                 for i in range(0, initial_points.shape[1] - 1):
                     if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
-                        current_span = initial_points[0, i]
-                        next_span = initial_points[0, i + 1]
+                        current_span = abs(initial_points[0, i])
+                        next_span = abs(initial_points[0, i + 1])
                     else:  # Wing beam
-                        current_span = initial_points[1, i]
-                        next_span = initial_points[1, i + 1]
+                        current_span = abs(initial_points[1, i])
+                        next_span = abs(initial_points[1, i + 1])
                     if not found_lower_point and (load_location >= current_span and load_location < next_span):
                         found_lower_point = True
                         load_point = np.zeros(3)
@@ -254,10 +253,10 @@ class SymbolicBeam(ABC, om.Group):
                         recorded_load_points.append(
                             load_point)  # To efficiently consider if the point has been created or not
                         initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
-                        self.options['section_characteristics'].insert(i+1, section_types[2])
+                        self.options['section_characteristics'].insert(i+1, SectionType.FORCE)
                         if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
-                            self.options['section_characteristics'].insert(i + 1, section_types[2])
+                            self.options['section_characteristics'].insert(i + 1, SectionType.FORCE)
                 # Finally add the load subsystem to the beam:
                 self.add_subsystem(a_load.load_label, a_load.component)
         # Then add the points of the joints
@@ -297,15 +296,15 @@ class SymbolicBeam(ABC, om.Group):
                     if joint_eta == 1.0:
                         last_slice = np.copy(initial_points[:, -1])
                         initial_points = np.transpose(np.vstack([np.transpose(initial_points), last_slice]))
-                        self.options['section_characteristics'].append(section_types[3])
+                        self.options['section_characteristics'].append(SectionType.JOINT)
                         continue
                     for i in range(0, initial_points.shape[1]):
                         if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
-                            current_span = initial_points[0, i]
-                            next_span = initial_points[0, i + 1]
+                            current_span = abs(initial_points[0, i])
+                            next_span = abs(initial_points[0, i + 1])
                         else:  # Wing beam
-                            current_span = initial_points[1, i]
-                            next_span = initial_points[1, i + 1]
+                            current_span = abs(initial_points[1, i])
+                            next_span = abs(initial_points[1, i + 1])
                         if not found_lower_point and (joint_location >= current_span and joint_location < next_span):
                             found_lower_point = True
                             load_point = np.zeros(3)
@@ -329,10 +328,10 @@ class SymbolicBeam(ABC, om.Group):
                             recorded_load_points.append(
                                 load_point)  # To efficiently consider if the point has been created or not
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
-                            self.options['section_characteristics'].insert(i + 1, section_types[3])
+                            self.options['section_characteristics'].insert(i + 1, SectionType.JOINT)
                             if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                                 initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
-                                self.options['section_characteristics'].insert(i + 1, section_types[3])
+                                self.options['section_characteristics'].insert(i + 1, SectionType.JOINT)
         self.options["r0"] = initial_points  # Storing the augmented point structure
         self.options['num_divisions'] = initial_points.shape[1]
         # Calculate th0
@@ -350,13 +349,18 @@ class SymbolicBeam(ABC, om.Group):
         self.options['xDot0'] = np.resize(np.transpose(xDot0), (18 * self.options['num_divisions']))
 
         # Boundary conditions
-        if self.options['beam_bc'] == 'Cantilever':
+        if self.options['beam_bc'] == BoundaryType.CANTILEVER:
             self.BC['root'][0:3] = self.options['r0'][0:3, 0]
             self.BC['root'][3:6] = self.options['th0'][0:3, 0]
-        elif self.options['beam_bc'] == 'Free-Free':
-            raise NotImplementedError                 #TODO: Add actual condition, now that we in theory can add joints
+        elif self.options['beam_bc'] == BoundaryType.FREEFREE:
+            self.BC['root'][6:9] = np.zeros(3)
+            self.BC['root'][9:12] = np.zeros(3)
         else:
             raise IOError
+
+        # Adding the tip loads in the beam:
+        self.BC['tip'][6:9] = edge_force
+        self.BC['tip'][9:12] = edge_moment
 
         # K0a
         self.options['K0a'] = np.zeros((self.options['num_divisions'] - 1, 3, 3))
@@ -523,7 +527,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         super().setup()
 
         # Specifying the beam shape so that other sub-components know:
-        self.options['beam_shape'] = "RECTANGULAR"
+        self.options['beam_shape'] = BeamCS.RECTANGULAR
 
         # Create the symbolic function relating inputs and outputs
         self.create_symbolic_function()
@@ -597,7 +601,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         # Lay up the augmented section set with the available cross-section information:
         J = 0
         for i in range(0, n):
-            if self.options['section_characteristics'][i] == 'cs':
+            if self.options['section_characteristics'][i] == SectionType.CS:
                 h[i] = cs[J]
                 w[i] = cs[J+n_dvcs]
                 J += 1
@@ -754,7 +758,7 @@ class BoxBeamRepresentation(SymbolicBeam):
         super().setup()
 
         # Specifying the beam shape so that other sub-components know:
-        self.options['beam_shape'] = "BOX"
+        self.options['beam_shape'] = BeamCS.BOX
 
         # Create the symbolic function relating inputs and outputs
         self.create_symbolic_function()
@@ -843,7 +847,7 @@ class BoxBeamRepresentation(SymbolicBeam):
         # Lay up the augmented section set with the available cross-section information:
         J = 0
         for i in range(0, n):
-            if self.options['section_characteristics'][i] == 'cs':
+            if self.options['section_characteristics'][i] == SectionType.CS:
                 h[i] = h_seed[J]
                 w[i] = w_seed[J]
                 t_left[i] = t_left_seed[J]
