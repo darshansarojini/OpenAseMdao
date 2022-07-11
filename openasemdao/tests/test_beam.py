@@ -714,20 +714,24 @@ def test_t_beam_computation():
                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint_2 = StrenghtAggregatedConstraint(name="basic_constraint_rht")
+    str_constraint_3 = StrenghtAggregatedConstraint(name="basic_constraint_lht")
 
     # EB stress model
-    stress_model = EulerBernoulliStressModel(name='EBRectangular')
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+    stress_model_2 = EulerBernoulliStressModel(name='EBRectangular_rht')
+    stress_model_3 = EulerBernoulliStressModel(name='EBRectangular_lht')
 
     # Adding Joints to the stickmodel group
 
     fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=[], joints=joints, constraints=[str_constraint], stress_definition=stress_model,
                                                      num_interp_sections=0)
 
-    RHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint], stress_definition=stress_model,
+    RHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint_2], stress_definition=stress_model_2,
                                                      num_interp_sections=0)
 
-    LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint], stress_definition=stress_model,
+    LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint_3], stress_definition=stress_model_3,
                                                      num_interp_sections=0)
 
     T_stickmodel = StaticBeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
