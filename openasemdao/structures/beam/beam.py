@@ -87,6 +87,62 @@ class BeamInterface(om.ExplicitComponent):
         outputs['corner_points'] = stress_recovery_points.full()
         pass
 
+class StaticStateOutput(om.ExplicitComponent):
+    def initialize(self):
+        self.options.declare('n', types=int)
+
+    def setup(self):
+        n = self.options['n']
+        # The only input is the converged state:
+        self.add_input('x', shape=18 * n)
+        # Define the state outputs that are necessary:
+        self.add_output('r', shape=(n, 3))
+        self.add_output('theta', shape=(n, 3))
+        self.add_output('F', shape=(n, 3))
+        self.add_output('M', shape=(n, 3))
+        self.add_output('u', shape=(n, 3))
+        self.add_output('omega', shape=(n, 3))
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        n = self.options['n']
+        x = np.transpose(np.reshape(inputs['x'], (n, 18)))
+        outputs['r'] = x[0:3, :]
+        outputs['theta'] = x[3:6, :]
+        outputs['F'] = x[6:9, :]
+        outputs['M'] = x[9:12, :]
+        outputs['u'] = x[12:15, :]
+        outputs['omega'] = x[15:18, :]
+
+class DynamicStateOutput(om.ExplicitComponent):
+    def initialize(self):
+        self.options.declare('n', types=int)
+        self.options.declare('T', types=int)
+
+    def setup(self):
+        n = self.options['n']
+        T = self.options['T']
+        # The only input is the converged state:
+        self.add_input('x', shape=(T, 18 * n))
+        # Define the state outputs that are necessary:
+        self.add_output('r', shape=(T, 3*n))
+        self.add_output('theta', shape=(T, 3*n))
+        self.add_output('F', shape=(T, 3*n))
+        self.add_output('M', shape=(T, 3*n))
+        self.add_output('u', shape=(T, 3*n))
+        self.add_output('omega', shape=(T, 3*n))
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        n = self.options['n']
+        x = inputs['x']
+
+        for i in range(0, n):
+            print(i)
+            outputs['r'][:, 3*i:3*i+3] = x[i*18:i*18+3, :]
+            outputs['theta'][:, 3*i:3*i+3] = x[i*18+3:i*18+6, :]
+            outputs['F'][:, 3*i:3*i+3] = x[i*18+6:i*18+9, :]
+            outputs['M'][:, 3*i:3*i+3] = x[i*18+9:i*18+12, :]
+            outputs['u'][:, 3*i:3*i+3] = x[i*18+12:i*18+15, :]
+            outputs['omega'][:, 3*i:3*i+3] = x[i*18+15:i*18+18, :]
 
 class SymbolicBeam(ABC, om.Group):
     """
@@ -220,8 +276,6 @@ class SymbolicBeam(ABC, om.Group):
                     # The tip load will not add nodes. Rather, it will add a boundary condition value
                     edge_force += np.squeeze(a_load.vector_force.magnitude)
                     edge_moment += np.squeeze(a_load.vector_moment.magnitude)
-                    # Finally add the load subsystem to the beam:
-                    self.add_subsystem(a_load.load_label, a_load.component)
                     continue
                 for i in range(0, initial_points.shape[1] - 1):
                     if np.array_equal(self.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
@@ -257,8 +311,6 @@ class SymbolicBeam(ABC, om.Group):
                         if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
                             self.options['section_characteristics'].insert(i + 1, SectionType.FORCE)
-                # Finally add the load subsystem to the beam:
-                self.add_subsystem(a_load.load_label, a_load.component)
         # Then add the points of the joints
         if len(joints) > 0:
             for a_joint in joints:
@@ -340,6 +392,11 @@ class SymbolicBeam(ABC, om.Group):
         self.options['delta_s0'] = np.sqrt((self.options["r0"][0, 1:] - self.options["r0"][0, 0:-1]) ** 2 + (self.options["r0"][1, 1:] - self.options["r0"][1, 0:-1]) ** 2 + (
                     self.options["r0"][2, 1:] - self.options["r0"][2, 0:-1]) ** 2)
 
+        # Correct th0 from zero length elements at the beginning:
+        for i in range(self.options['delta_s0'].shape[0]):
+            ds = self.options['delta_s0'][i]
+            if ds == 0:
+                self.options['th0'][:, i] = self.options['th0'][:, i+1]
         # Initial guess values
         x0 = np.zeros((18, self.options['num_divisions']))
         xDot0 = np.zeros((18, self.options['num_divisions']))
@@ -474,7 +531,7 @@ class SymbolicBeam(ABC, om.Group):
             E[i][0, 1] = 0
             E[i][0, 2] = EIxz[i]
             E[i][1, 0] = 0
-            E[i][1, 1] = 0
+            E[i][1, 1] = GJ[i]
             E[i][1, 2] = 0
             E[i][2, 0] = EIxz[i]
             E[i][2, 1] = 0

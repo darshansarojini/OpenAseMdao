@@ -3,7 +3,7 @@ from abc import ABC
 from casadi import *
 import math
 import numpy as np
-
+from openasemdao.integration.integrator import Integrator
 from openasemdao.structures.utils.utils import CalcNodalT
 
 
@@ -11,11 +11,11 @@ class SymbolicStickModel(ABC):
 
     @staticmethod
     def AddJointConcLoads(X, JointProp, c_Forces, c_Moments):
-        n = int((X.shape[0] - 12 * len(JointProp['Parent']))/ 18)
+        n = int((X.shape[0] - 12 * len(JointProp['Parent'])) / 18)
         for k in range(0, len(JointProp['Parent'])):
             F_J = X[18 * n + 6 + 12 * k: 18 * n + 9 + 12 * k]
             M_J = X[18 * n + 9 + 12 * k: 18 * n + 12 + 12 * k]
-            curr_low_bound = c_Forces['inter_node_lim'][JointProp['Parent'][k], 0]    # Get the location of parent start in forces
+            curr_low_bound = c_Forces['inter_node_lim'][JointProp['Parent'][k], 0]  # Get the location of parent start in forces
             c_Forces['delta_Fapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k]] = c_Forces['delta_Fapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k]] + F_J
             c_Moments['delta_Mapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k]] = c_Moments['delta_Mapplied'][:, curr_low_bound + JointProp['Parent_NodeNum'][k]] + M_J
         return c_Forces, c_Moments
@@ -131,7 +131,7 @@ class SymbolicStickModel(ABC):
                                                                                                         Mcsnp[:, ind]))
 
             # Get damping vector for moment-curvature relationship
-            damp_MK[:, ind] = mtimes(inv(K[ind][:, :]), mtimes(T[ind][:, :], omega[:,ind]))
+            damp_MK[:, ind] = mtimes(inv(K[ind][:, :]), mtimes(T[ind][:, :], omega[:, ind]))
 
         damp = SX.zeros(3, 3)
         damp[0, 0] = self.t_kappa_c
@@ -155,7 +155,7 @@ class SymbolicStickModel(ABC):
         # moment-curvature debugger:
         mc_static = SX.sym('mc', 3, n)
         for i in range(0, n - 1):
-            delta_r[:, i] = (r[:, i + 1] - r[:,i] + eps)  # Added a non zero number to avoid the 1/sqrt(dx) singularity at the zero length nodes
+            delta_r[:, i] = (r[:, i + 1] - r[:, i] + eps)  # Added a non zero number to avoid the 1/sqrt(dx) singularity at the zero length nodes
             delta_s[i] = sqrt(
                 (delta_r[0, i]) ** 2 + (delta_r[1, i]) ** 2 + (delta_r[2, i]) ** 2)  # based on ASW, Eq. 49, Page 12
 
@@ -173,8 +173,8 @@ class SymbolicStickModel(ABC):
                 # Rows 7-9: moment-curvature relationship (ASW, Eq. 54, page 13)
                 Res[6:9, i] = R_prec[2] * (mtimes(Ka[i][:, :], (theta[:, i + 1] - theta[:, i])) - mtimes(K0a[i, :, :], (
                         theta0[:, i + 1] - theta0[:, i])) - 0.25 * mtimes((Einv[i][:, :] + Einv[i + 1][:, :]), (
-                                                   Mcsnp[:, i] + Mcsnp[:, i + 1])) * delta_s[i] + mtimes(damp, (
-                        mtimes(Ka[i][:, :], (damp_MK[:, i + 1] - damp_MK[:, i])) + 0.5*mtimes((
+                        Mcsnp[:, i] + Mcsnp[:, i + 1])) * delta_s[i] + mtimes(damp, (
+                        mtimes(Ka[i][:, :], (damp_MK[:, i + 1] - damp_MK[:, i])) + 0.5 * mtimes((
                         K[i + 1][:, :] - K[i][:, :]), (damp_MK[:, i + 1] + damp_MK[:, i])))))
                 # Rows 10-12: strain-displacement (ASW, Eq. 48, page 12)
                 s_vec = SX.zeros(3, 1)
@@ -221,7 +221,7 @@ class SymbolicStickModel(ABC):
 
                 indicesRoot = []
                 indicesTip = []
-                for k in range(0,len(indicesRoot_)):
+                for k in range(0, len(indicesRoot_)):
                     if indicesRoot_[k]:
                         indicesRoot.append(k)
                     if indicesTip_[k]:
@@ -237,7 +237,7 @@ class SymbolicStickModel(ABC):
         # Debugging functions
         self.symbolics['mc_static'] = mc_static
         # endsection
-        return reshape(Res, (18*n, 1))
+        return reshape(Res, (18 * n, 1))
 
     def JointResJac(self, Residuals, beam_list, JointProp, X):
         # ********** Use for Jacobian
@@ -276,8 +276,8 @@ class SymbolicStickModel(ABC):
             NodeNum_JP2 = JointProp['Child_NodeNum'][k]
 
             # region Residual of kinematic constraints
-            starting_node_parent = 18 * beam_list['node_lim'][parent_index, 0]   # ZERO entry. Where the part residual entry starts
-            starting_node_child = 18 * beam_list['node_lim'][child_index, 0]    # ZERO entry. Where the part residual entry starts
+            starting_node_parent = 18 * beam_list['node_lim'][parent_index, 0]  # ZERO entry. Where the part residual entry starts
+            starting_node_child = 18 * beam_list['node_lim'][child_index, 0]  # ZERO entry. Where the part residual entry starts
 
             r10 = JointProp['Parent_r0'][:, k]  # stickModel_1.r0(:,NodeNum_JP1)
             r20 = JointProp['Child_r0'][:, k]  # stickModel_2.r0(:,NodeNum_JP2)
@@ -297,7 +297,7 @@ class SymbolicStickModel(ABC):
             T2 = SymbolicStickModel.RotationMatrix(beam_list['seq'][3 * child_index:3 + 3 * child_index], th2)
             T20 = SymbolicStickModel.RotationMatrix(beam_list['seq'][3 * child_index:3 + 3 * child_index], th20)
 
-            Res[12 * k + 0: 12 * k + 3] = r2 - r1 - mtimes(transpose(T1), mtimes(T10, (r20-r10)))
+            Res[12 * k + 0: 12 * k + 3] = r2 - r1 - mtimes(transpose(T1), mtimes(T10, (r20 - r10)))
 
             temp1 = mtimes(transpose(T1), T10)
             temp2 = mtimes(transpose(T2), T20)
@@ -311,11 +311,10 @@ class SymbolicStickModel(ABC):
             # region Residual of F&M equations
 
             # Form the required variables
-            Mi1 = X[starting_node_child + 18 * (NodeNum_JP2+1) + 9:starting_node_child + 18 * (NodeNum_JP2+1) + 12]
+            Mi1 = X[starting_node_child + 18 * (NodeNum_JP2 + 1) + 9:starting_node_child + 18 * (NodeNum_JP2 + 1) + 12]
             Mi = X[starting_node_child + 18 * (NodeNum_JP2) + 9:starting_node_child + 18 * (NodeNum_JP2) + 12]
-            Fi1 = X[starting_node_child + 18 * (NodeNum_JP2+1) + 6:starting_node_child + 18 * (NodeNum_JP2+1) + 9]
+            Fi1 = X[starting_node_child + 18 * (NodeNum_JP2 + 1) + 6:starting_node_child + 18 * (NodeNum_JP2 + 1) + 9]
             Fi = X[starting_node_child + 18 * (NodeNum_JP2) + 6:starting_node_child + 18 * (NodeNum_JP2) + 9]
-
 
             # Assumptions (for now)
             deltaF = np.zeros((3, 1))
@@ -385,7 +384,7 @@ class SymbolicStickModel(ABC):
         R[2][2, 2] = 1
 
         # multiply single-axis rotation tensors in reverse order
-        T = mtimes(R[seq[2]-1], mtimes(R[seq[1]-1], R[seq[0]-1]))
+        T = mtimes(R[seq[2] - 1], mtimes(R[seq[1] - 1], R[seq[0] - 1]))
 
         return T
 
@@ -410,11 +409,19 @@ class SymbolicStickModel(ABC):
             r_J = X[18 * n + 0 + 12 * k: 18 * n + 3 + 12 * k]
             th_J = X[18 * n + 3 + 12 * k: 18 * n + 6 + 12 * k]
             child_joint = JointProp['Child'][k]
-            starting_node = 18 * beam_list['node_lim'][child_joint, 0]       # ZERO entry. Where the part residual entry starts
+            starting_node = 18 * beam_list['node_lim'][child_joint, 0]  # ZERO entry. Where the part residual entry starts
             Residuals[starting_node + 18 * JointProp['Child_NodeNum'][k] + 0:starting_node + 18 * JointProp['Child_NodeNum'][k] + 3] = X[starting_node + 18 *
-                        JointProp['Child_NodeNum'][k] + 0:starting_node + 18 * JointProp['Child_NodeNum'][k] + 3] - JointProp['Child_r0'][:, k] - r_J
+                                                                                                                                         JointProp['Child_NodeNum'][k] + 0:starting_node + 18 *
+                                                                                                                                                                           JointProp['Child_NodeNum'][
+                                                                                                                                                                               k] + 3] - JointProp[
+                                                                                                                                                                                             'Child_r0'][
+                                                                                                                                                                                         :, k] - r_J
             Residuals[starting_node + 18 * JointProp['Child_NodeNum'][k] + 3:starting_node + 18 * JointProp['Child_NodeNum'][k] + 6] = X[starting_node + 18 *
-                        JointProp['Child_NodeNum'][k] + 3:starting_node + 18 * JointProp['Child_NodeNum'][k] + 6] - JointProp['Child_th0'][:, k] - th_J
+                                                                                                                                         JointProp['Child_NodeNum'][k] + 3:starting_node + 18 *
+                                                                                                                                                                           JointProp['Child_NodeNum'][
+                                                                                                                                                                               k] + 6] - JointProp[
+                                                                                                                                                                                             'Child_th0'][
+                                                                                                                                                                                         :, k] - th_J
         return Residuals
 
     def calc_a_cg(self, r, u, uDot, omega, omegaDot, delta_rCG_tilde, A0, OMEGA, ALPHA0):
@@ -589,11 +596,66 @@ class SymbolicStickModel(ABC):
 
         return T_E
 
-class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
+
+class StickModelFeeder(om.ExplicitComponent):
     def initialize(self):
+        self.options.declare('beam_list')
+
+    def setup(self):
+        beam_number = 0
+        n_variables = 0
+        for a_beam in self.options['beam_list']:
+            self.add_input('cs_' + str(beam_number), shape=a_beam.symbolic_expressions['cs'].shape[0])
+            n_variables += a_beam.symbolic_expressions['cs'].shape[0]
+            beam_number += 1
+        self.add_output('cs_out', shape=n_variables)
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        cs_fused = []
+        for beam_number in range(len(self.options['beam_list'])):
+            if not isinstance(cs_fused, np.ndarray):
+                cs_fused = inputs['cs_' + str(beam_number)]
+            else:
+                cs_fused = np.hstack((cs_fused, inputs['cs_' + str(beam_number)]))
+        outputs['cs_out'] = cs_fused
+
+
+class StickModelDemultiplexer(om.ExplicitComponent):
+    def initialize(self):
+        self.options.declare('beam_list')
+        self.options.declare('joint_reference')
+
+    def setup(self):
+        beam_number = 0
+        n_variables = 0
+
+        for a_beam in self.options['beam_list']:
+            self.add_output('x_' + str(beam_number), shape=(a_beam.symbolic_expressions['x'].shape[0], a_beam.symbolic_expressions['x'].shape[1]))
+            n_variables += a_beam.symbolic_expressions['x'].shape[0]
+            beam_number += 1
+        self.add_input('x_in', shape=(n_variables+12*len(self.options['joint_reference']), self.options['beam_list'][0].symbolic_expressions['x'].shape[1]))
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        x_fused = inputs['x_in']
+        n_variables = 0
+        for beam_number in range(len(self.options['beam_list'])):
+            outputs['x_' + str(beam_number)] = x_fused[n_variables:n_variables+self.options['beam_list'][beam_number].symbolic_expressions['x'].shape[0], :]
+            n_variables += self.options['beam_list'][beam_number].symbolic_expressions['x'].shape[0]
+
+
+class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
+    def initialize(self):
+        # Dynamic Variables:
+        self.options.declare('t_initial', types=float, default=0.0)
+        self.options.declare('t_final', types=float, default=1.0)
+        self.options.declare('time_step', types=float, default=1.0)    # default is only 1 timestep
+        self.options.declare('order', types=int, default=2)
+        self.options.declare('tolerance', types=float, default=1e-8)
+
         self.options.declare('load_factor', types=float)
         self.options.declare('beam_list')
         self.options.declare('joint_reference')
+        self.options.declare('num_timesteps')
         # Generated structures:
         self.beam_reference = {}
         self.JointProp = {}
@@ -617,9 +679,11 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         self.create_symbolic_function(self.options['beam_list'], self.options['joint_reference'])
 
+        self.options['num_timesteps'] = math.floor((self.options['t_final'] - self.options['t_initial']) / self.options['time_step'])
+
         # Generate state and force numerical connections:
 
-        self.add_input('xDot', shape=self.symbolic_expressions['Residual'].shape[0])
+        self.add_input('xDot', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']+1))
         self.add_input('Xac', shape=18)
         self.add_input('forces_dist', shape=3 * self.beam_reference['forces_conc'].shape[1])
         self.add_input('moments_dist', shape=3 * self.beam_reference['forces_conc'].shape[1])
@@ -629,14 +693,13 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.add_input('cs', shape=self.beam_reference['cs'].shape[0])
 
         # Add the outputs from this stickmodel class (just a single beam)
-        self.add_output('x', shape=self.symbolic_expressions['Residual'].shape[0])
+        self.add_output('x', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']+1))
         self.declare_partials('x', 'x')
 
     def apply_nonlinear(self, inputs, outputs, residuals, discrete_inputs=None,
                         discrete_outputs=None):
-        # self.symbolic_functions['mc_static']
         if 'x' in residuals:
-            residuals['x'] = self.symbolic_functions['Residuals'](x=outputs['x'], xDot=inputs['xDot'], Xac=inputs['Xac'],
+            residuals['x'] = self.symbolic_functions['Residuals'](x=outputs['x'][:, -1], xDot=inputs['xDot'][:, -1], Xac=inputs['Xac'],
                                                                   fDist=inputs['forces_dist'], mDist=inputs['moments_dist'],
                                                                   fConc=inputs['forces_conc'], mConc=inputs['moments_conc'],
                                                                   csDVs=inputs['cs'])['r']
@@ -646,21 +709,13 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
     def linearize(self, inputs, outputs, partials, discrete_inputs=None, discrete_outputs=None):
 
-        Jac = self.symbolic_functions['Jacobian'](outputs['x'], inputs['xDot'], inputs['Xac'], inputs['forces_dist'],
-                               inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
-
+        Jac = self.symbolic_functions['Jacobian'](outputs['x'][:, -1], inputs['xDot'][:, -1], inputs['Xac'], inputs['forces_dist'],
+                                                  inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
 
         partials['x', 'x'] = Jac[0:self.symbolic_expressions['Residual'].shape[0], 0:self.symbolic_expressions['Residual'].shape[0]]
-        # J = Jac[0:self.symbolic_expressions['Residual'].shape[0], 0:self.symbolic_expressions['Residual'].shape[0]]
-        # R, C, R_pp, C_pp =  calculate_preconditioner(J)
-        # B_J = R_pp* R *coo_matrix(J.toarray())* C *C_pp
 
-        pass
-
-    def solve_nonlinear(self, inputs, outputs, residuals):
-        pass
-        # Integrator = StaticIntegrator(tolerance=1e-9, model=self, inputs=inputs, outputs=outputs)
-        # self.apply_nonlinear(inputs, outputs, residuals, None, None)
+    def solve_nonlinear(self, inputs, outputs):
+        Integrator(tolerance=self.options['tolerance'], model=self, bdf_order=self.options['order'], inputs=inputs, outputs=outputs)
 
     def create_symbolic_function(self, beams, joints):
 
@@ -668,8 +723,8 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         # Relevant Expressions: cs, x, xDot, x_slice, xDot_slice, D, oneover, mu, i_matrix, delta_r_CG_tilde, Einv, E, EA, forces_dist, moments_dist, forces_conc, moments_conc
         variable_categories = ['cs', 'x', 'xDot', 'x_slice', 'xDot_slice', 'D', 'oneover', 'mu', 'i_matrix', 'delta_r_CG_tilde', 'Einv', 'E', 'EA', 'forces_dist', 'moments_dist',
-                                 'forces_conc', 'moments_conc', 'r0', 'th0', 'delta_s0', 'K0a', 'BC', 'seq']
-        variable_types = [0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 3, 2]    # 0: SX, 1: list
+                               'forces_conc', 'moments_conc', 'r0', 'th0', 'delta_s0', 'K0a', 'BC', 'seq']
+        variable_types = [0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 3, 2]  # 0: SX, 1: list
 
         self.beam_reference['cs'] = {}
         self.beam_reference['x'] = {}
@@ -719,7 +774,7 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
                         if a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[0] > a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[1]:
                             # Vertically oriented vector
                             self.beam_reference[variable_categories[a_variable_index]] = vertcat(self.beam_reference[variable_categories[a_variable_index]],
-                                                                                                     a_beam.symbolic_expressions[variable_categories[a_variable_index]])
+                                                                                                 a_beam.symbolic_expressions[variable_categories[a_variable_index]])
                         else:
                             # Horizontally oriented vector
                             self.beam_reference[variable_categories[a_variable_index]] = horzcat(self.beam_reference[variable_categories[a_variable_index]],
@@ -769,7 +824,7 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
                         main_direction = 1
                         if np.array_equal(a_beam.options["seq"], np.array([3, 1, 2])):  # Fuselage beam
                             main_direction = 0
-                        span_eta = a_joint.parent_eta*(a_beam.options['r0'][main_direction, -1] - a_beam.options['r0'][main_direction, 0])
+                        span_eta = a_joint.parent_eta * (a_beam.options['r0'][main_direction, -1] - a_beam.options['r0'][main_direction, 0])
                         search_span = a_beam.options['r0'][main_direction, :]
                         result = np.where(abs(search_span - span_eta) < 1e-5)
                         self.JointProp['Parent_NodeNum'].append(result[0][0])
@@ -792,9 +847,9 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
                     beam_number += 1
 
                 # Add new columns for the symbolic state vectors
-                self.beam_reference['x'] = vertcat(self.beam_reference['x'], SX.sym(a_joint.joint_label+'state', 12, beams[0].options['num_timesteps']+1))
-                self.beam_reference['xDot'] = vertcat(self.beam_reference['xDot'], SX.sym(a_joint.joint_label + 'stateD', 12, beams[0].options['num_timesteps']+1))
-                self.beam_reference['x_slice'] = vertcat(self.beam_reference['x_slice'], SX.sym(a_joint.joint_label+'state_s', 12, 1))
+                self.beam_reference['x'] = vertcat(self.beam_reference['x'], SX.sym(a_joint.joint_label + 'state', 12, beams[0].options['num_timesteps'] + 1))
+                self.beam_reference['xDot'] = vertcat(self.beam_reference['xDot'], SX.sym(a_joint.joint_label + 'stateD', 12, beams[0].options['num_timesteps'] + 1))
+                self.beam_reference['x_slice'] = vertcat(self.beam_reference['x_slice'], SX.sym(a_joint.joint_label + 'state_s', 12, 1))
                 self.beam_reference['xDot_slice'] = vertcat(self.beam_reference['xDot_slice'], SX.sym(a_joint.joint_label + 'state_s_D', 12, 1))
 
                 joint_number += 1
@@ -802,18 +857,18 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         g[2] = 9.81
 
         R_prec = np.ones(12)
-        R_prec[0] = 1e-3
-        R_prec[1] = 1e-5
-        R_prec[2] = 1e5
-        R_prec[3] = 1
-        R_prec[4] = 1e0
-        R_prec[5] = 1e0
-        R_prec[6] = 1e-4
-        R_prec[7] = 3 * 1e3
-        R_prec[8] = 1e2
-        R_prec[9] = 1e0
-        R_prec[10] = 1e0
-        R_prec[11] = 1e0
+        # R_prec[0] = 1e-3
+        # R_prec[1] = 1e-5
+        # R_prec[2] = 1e5
+        # R_prec[3] = 1
+        # R_prec[4] = 1e0
+        # R_prec[5] = 1e0
+        # R_prec[6] = 1e-4
+        # R_prec[7] = 3 * 1e3
+        # R_prec[8] = 1e2
+        # R_prec[9] = 1e0
+        # R_prec[10] = 1e0
+        # R_prec[11] = 1e0
         self.g = -self.options['load_factor'] * g
 
         nodes = self.beam_reference['n']
@@ -843,10 +898,10 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         self.symbolic_functions['Residuals'] = Function("Residuals", [self.beam_reference['x_slice'], self.beam_reference['xDot_slice'],
                                                                       self.symbolics['Xac'],
-                                                                      reshape(self.beam_reference['forces_dist'].T, (3*self.beam_reference['n_inter'], 1)),
-                                                                      reshape(self.beam_reference['moments_dist'].T, (3*self.beam_reference['n_inter'], 1)),
-                                                                      reshape(self.beam_reference['forces_conc'].T, (3*self.beam_reference['n_inter'], 1)),
-                                                                      reshape(self.beam_reference['moments_conc'].T, (3*self.beam_reference['n_inter'], 1)),
+                                                                      reshape(self.beam_reference['forces_dist'].T, (3 * self.beam_reference['n_inter'], 1)),
+                                                                      reshape(self.beam_reference['moments_dist'].T, (3 * self.beam_reference['n_inter'], 1)),
+                                                                      reshape(self.beam_reference['forces_conc'].T, (3 * self.beam_reference['n_inter'], 1)),
+                                                                      reshape(self.beam_reference['moments_conc'].T, (3 * self.beam_reference['n_inter'], 1)),
                                                                       self.beam_reference['cs']],
                                                         [self.symbolic_expressions['Residual']],
                                                         ['x', 'xDot', 'Xac', 'fDist', 'mDist', 'fConc', 'mConc', 'csDVs'],
@@ -857,10 +912,10 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         self.symbolic_functions['Jacobian'] = Function('Jac', [self.beam_reference['x_slice'], self.beam_reference['xDot_slice'],
                                                                self.symbolics['Xac'],
-                                                               reshape(self.beam_reference['forces_dist'].T, (3*self.beam_reference['n_inter'], 1)),
-                                                               reshape(self.beam_reference['moments_dist'].T, (3*self.beam_reference['n_inter'], 1)),
-                                                               reshape(self.beam_reference['forces_conc'].T, (3*self.beam_reference['n_inter'], 1)),
-                                                               reshape(self.beam_reference['moments_conc'].T, (3*self.beam_reference['n_inter'], 1)),
+                                                               reshape(self.beam_reference['forces_dist'].T, (3 * self.beam_reference['n_inter'], 1)),
+                                                               reshape(self.beam_reference['moments_dist'].T, (3 * self.beam_reference['n_inter'], 1)),
+                                                               reshape(self.beam_reference['forces_conc'].T, (3 * self.beam_reference['n_inter'], 1)),
+                                                               reshape(self.beam_reference['moments_conc'].T, (3 * self.beam_reference['n_inter'], 1)),
                                                                self.beam_reference['cs']],
                                                        [self.symbolic_expressions['Jacobian']])
 
@@ -871,16 +926,15 @@ class StaticBeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         # Generate holders for the forces that will get modified due to the Joint Residuals:
         c_Forces = Forces
 
-
         c_Moments = Moments
 
         if len(JointProp) > 0:
             #  Now lets run through each joint (all at once) and add the forces that correspond to the parent joint part
-            c_Forces, c_Moments = StaticBeamStickModel.AddJointConcLoads(X, JointProp, c_Forces, c_Moments)
+            c_Forces, c_Moments = BeamStickModel.AddJointConcLoads(X, JointProp, c_Forces, c_Moments)
 
         # Running individual elements
         n = 0
-        for i in range(0, int(stickModel['seq'].size/3)):
+        for i in range(0, int(stickModel['seq'].size / 3)):
             n_element = stickModel['node_lim'][i, 1] - stickModel['node_lim'][i, 0]
             Residuals[18 * n: 18 * (n + n_element)] = self.ResJac(stickModel, reshape(X[18 * n:18 * (n + n_element)], (18, n_element)),
                                                                   reshape(Xd[18 * n:18 * (n + n_element)], (18, n_element)), X_AC, c_Forces, c_Moments, BC, g, i, Rprec)

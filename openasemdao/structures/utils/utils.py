@@ -153,8 +153,6 @@ def calculate_th0(r0, seq):
                 if i > 0:
                     # Inherit angle from previous section
                     th0[:, i] = th0[:, i - 1]
-                else:
-                    th0[:, i] = np.array([0.0, 0.0, 0.0])
         else:
             # Inherit angle from previous section
             th0[:, i] = th0[:, i - 1]

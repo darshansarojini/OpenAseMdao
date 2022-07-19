@@ -4,10 +4,11 @@ from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
 from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
 from openasemdao.structures.beam.stress_models import EulerBernoulliStressModel
-from openasemdao.structures.beam.stickmodel import StaticBeamStickModel
+from openasemdao.structures.beam.stickmodel import BeamStickModel, StickModelFeeder, StickModelDemultiplexer
 from openasemdao import Q_
 import numpy as np
 from openasemdao.structures.utils.beam_categories import BoundaryType
+
 
 def test_zero_element_generation():
     model = om.Group()
@@ -657,6 +658,10 @@ def test_box_torsion_computation():
 
 
 def test_t_beam_computation():
+    # importing matplotlib package
+    import matplotlib.pyplot as plt
+    from mpl_toolkits import mplot3d
+
     model = om.Group()
     # Generate a sequence of points for the beam
     n_sections_before_joints_loads = 7
@@ -673,7 +678,7 @@ def test_t_beam_computation():
     label1 = 'load1'
     f1 = Q_(np.array([0, 0, 1000]), 'newton')
     m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
-    eta1 = 1.0
+    eta1 = 0.8
     load1 = PointLoadDefinition(label1, eta1, f1, m1)
     loads.append(load1)
 
@@ -734,14 +739,108 @@ def test_t_beam_computation():
     LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint_3], stress_definition=stress_model_3,
                                                      num_interp_sections=0)
 
-    T_stickmodel = StaticBeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
+    input_fuser = StickModelFeeder(beam_list=[fuselage, RHS_tail, LHS_tail])
+
+    input_return = StickModelDemultiplexer(beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
 
     model.add_subsystem(name='Fuselage', subsys=fuselage)
     model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
     model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
     model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+    model.add_subsystem(name='outputStickmodel', subsys=input_return)
+
+    # Setting up connections:
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_1')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_2')
+
+    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+
+    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
+    model.connect('outputStickmodel.x_1', 'FuseRHT.DoubleSymmetricBeamInterface.x')
+    model.connect('outputStickmodel.x_2', 'FuseLHT.DoubleSymmetricBeamInterface.x')
 
     prob = om.Problem(model)
     prob.setup()
 
+    # Setting up the initial conditions:
+    x0 = np.hstack((fuselage.options['x0'], RHS_tail.options['x0'], LHS_tail.options['x0'], np.zeros((12 * len(joints)))))
+
+    x_0 = np.vstack((x0, x0)).T
+
+    # Set some initial guesses
+
+    # Input design variables
+    prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((fuselage.options['beam_shape'].value * fuselage.options['num_DvCs'])))
+    prob.set_val('FuseRHT.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((RHS_tail.options['beam_shape'].value * RHS_tail.options['num_DvCs'])))
+    prob.set_val('FuseLHT.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((LHS_tail.options['beam_shape'].value * LHS_tail.options['num_DvCs'])))
+
+    prob.set_val('Tstickmodel.xDot', np.zeros((x_0.shape[0], x_0.shape[1])))
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    prob.set_val('Tstickmodel.x', x_0)
+
+    # Solve Model
+    prob.run_model()
+
+    # Gather data:
+    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
+    x_rht = prob.get_val('FuseRHT.DoubleSymmetricBeamInterface.x')
+    x_lht = prob.get_val('FuseLHT.DoubleSymmetricBeamInterface.x')
+
+    # Sort data:
+    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0]/18), 18)).T
+    x_rht_end = np.reshape(np.squeeze(x_rht[:, 1]), (int(x_rht.shape[0] / 18), 18)).T
+    x_lht_end = np.reshape(np.squeeze(x_lht[:, 1]), (int(x_lht.shape[0] / 18), 18)).T
+
+    x_fuselage_start = np.reshape(np.squeeze(x_fuselage[:, 0]), (int(x_fuselage.shape[0] / 18), 18)).T
+    x_rht_start = np.reshape(np.squeeze(x_rht[:, 0]), (int(x_rht.shape[0] / 18), 18)).T
+    x_lht_start = np.reshape(np.squeeze(x_lht[:, 0]), (int(x_lht.shape[0] / 18), 18)).T
+
+
+    #Plotting initial state:
+
+    # creating an empty canvas
+    fig = plt.figure()
+
+    # defining the axes with the projection
+    # as 3D so as to plot 3D graphs
+    ax = plt.axes(projection="3d")
+
+    r_fuse_start = np.squeeze(x_fuselage_start[0:3, :])
+    r_rht_start = np.squeeze(x_rht_start[0:3, :])
+    r_lht_start = np.squeeze(x_lht_start[0:3, :])
+
+    ax.plot3D(r_fuse_start[0, :], r_fuse_start[1, :], r_fuse_start[2, :], 'red')
+    ax.scatter3D(r_fuse_start[0, :], r_fuse_start[1, :], r_fuse_start[2, :], c=r_fuse_start[2, :], cmap='cividis')
+
+    ax.plot3D(r_rht_start[0, :], r_rht_start[1, :], r_rht_start[2, :], 'red')
+    ax.scatter3D(r_rht_start[0, :], r_rht_start[1, :], r_rht_start[2, :], c=r_rht_start[2, :], cmap='cividis')
+
+    ax.plot3D(r_lht_start[0, :], r_lht_start[1, :], r_lht_start[2, :], 'red')
+    ax.scatter3D(r_lht_start[0, :], r_lht_start[1, :], r_lht_start[2, :], c=r_lht_start[2, :], cmap='cividis')
+
+    r_fuse_end = np.squeeze(x_fuselage_end[0:3, :])
+    r_rht_end = np.squeeze(x_rht_end[0:3, :])
+    r_lht_end = np.squeeze(x_lht_end[0:3, :])
+
+    ax.plot3D(r_fuse_end[0, :], r_fuse_end[1, :], r_fuse_end[2, :], 'green')
+    ax.scatter3D(r_fuse_end[0, :], r_fuse_end[1, :], r_fuse_end[2, :], c=r_fuse_end[2, :], cmap='cividis')
+
+    ax.plot3D(r_rht_end[0, :], r_rht_end[1, :], r_rht_end[2, :], 'green')
+    ax.scatter3D(r_rht_end[0, :], r_rht_end[1, :], r_rht_end[2, :], c=r_rht_end[2, :], cmap='cividis')
+
+    ax.plot3D(r_lht_end[0, :], r_lht_end[1, :], r_lht_end[2, :], 'green')
+    ax.scatter3D(r_lht_end[0, :], r_lht_end[1, :], r_lht_end[2, :], c=r_lht_end[2, :], cmap='cividis')
+
+    # Showing the above plot
+    plt.show()
     pass
