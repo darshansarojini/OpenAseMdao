@@ -656,11 +656,201 @@ def test_box_torsion_computation():
     np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass
 
+def test_rect_beam_computation():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 7
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+
+    L = 10
+
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    Load = 1000  # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    joints = []
+
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+
+    fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints)
+
+    input_fuser = StickModelFeeder(beam_list=[fuselage])
+
+    input_return = StickModelDemultiplexer(beam_list=[fuselage], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+    model.add_subsystem(name='outputStickmodel', subsys=input_return)
+
+    # Setting up connections:
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
+
+    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+
+    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
+
+    prob = om.Problem(model)
+    prob.setup()
+
+    # Input design variables
+    h = 0.1
+    w = 0.5
+    cs_in = np.hstack(
+        (h * np.ones((int(fuselage.options['beam_shape'].value/2) * fuselage.options['num_DvCs'])), w * np.ones((int(fuselage.options['beam_shape'].value/2) * fuselage.options['num_DvCs']))))
+
+    prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', cs_in)
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+    prob.run_model()
+
+    # Gather data:
+    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
+
+    # Sort data:
+    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0] / 18), 18)).T
+
+    x_fuselage_start = np.reshape(np.squeeze(x_fuselage[:, 0]), (int(x_fuselage.shape[0] / 18), 18)).T
+
+    dx = x_fuselage_end - x_fuselage_start
+
+    dr = dx[0:3, :]
+
+    endpoint_deflection = dr[2, -1]
+
+    I_expr = (h ** 3 * w) / 12
+
+    F = Load
+
+    kappa = 5 / 6
+
+    theoretical_deflection = (F * L ** 3) / (3 * 69e9 * I_expr) - (F * L) / (kappa * h * w * 1e20)
+
+    np.testing.assert_almost_equal(theoretical_deflection, endpoint_deflection, decimal=3)
+
+def test_rect_beam_dynamic_computation():
+    # importing matplotlib package
+    import matplotlib.pyplot as plt
+
+    model = om.Group()
+
+    t_initial = 0.0
+    t_final = 1.0
+    time_step = 1e-2
+
+    num_timesteps = int((t_final - t_initial) / time_step)
+
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 21
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+
+    L = 20
+
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(70e9, 'pascal'),
+                               G=Q_(30e9, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=num_timesteps, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+
+    joints = []
+
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+
+    fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step, load_function=beam_sinusoidal_load)
+
+    input_fuser = StickModelFeeder(beam_list=[fuselage])
+
+    input_return = StickModelDemultiplexer(beam_list=[fuselage], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+    model.add_subsystem(name='outputStickmodel', subsys=input_return)
+
+    # Setting up connections:
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
+
+    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+
+    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
+
+    prob = om.Problem(model)
+    prob.setup()
+
+    # Input design variables
+    h = 0.1
+    w = 0.5
+    cs_in = np.hstack(
+        (h * np.ones((int(fuselage.options['beam_shape'].value / 2) * fuselage.options['num_DvCs'])), w * np.ones((int(fuselage.options['beam_shape'].value / 2) * fuselage.options['num_DvCs']))))
+
+    prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', cs_in)
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+    prob.run_model()
+
+    # Gather data:
+    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
+
+    r_fuselage = np.squeeze(x_fuselage[362, :])
+
+    t = T_stickmodel.numeric_storage['time']
+
+    fig1 = plt.figure("Figure 1")
+
+    ax11 = plt.subplot(111)
+
+    ax11.plot(t, r_fuselage, color='r')
+
+    ax11.set_xlabel('Time (s)')
+    ax11.set_ylabel('Tip deflection (m)')
+    ax11.grid(True)
+
+    plt.show()
 
 def test_t_beam_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
-    from mpl_toolkits import mplot3d
 
     model = om.Group()
     # Generate a sequence of points for the beam
@@ -676,9 +866,10 @@ def test_t_beam_computation():
     # Test loads for the geometry
     loads = []
     label1 = 'load1'
-    f1 = Q_(np.array([0, 0, 1000]), 'newton')
+    Load = 200 # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
     m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
-    eta1 = 0.8
+    eta1 = 1.0
     load1 = PointLoadDefinition(label1, eta1, f1, m1)
     loads.append(load1)
 
@@ -767,11 +958,6 @@ def test_t_beam_computation():
     prob = om.Problem(model)
     prob.setup()
 
-    # Setting up the initial conditions:
-    x0 = np.hstack((fuselage.options['x0'], RHS_tail.options['x0'], LHS_tail.options['x0'], np.zeros((12 * len(joints)))))
-
-    x_0 = np.vstack((x0, x0)).T
-
     # Set some initial guesses
 
     # Input design variables
@@ -779,14 +965,13 @@ def test_t_beam_computation():
     prob.set_val('FuseRHT.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((RHS_tail.options['beam_shape'].value * RHS_tail.options['num_DvCs'])))
     prob.set_val('FuseLHT.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((LHS_tail.options['beam_shape'].value * LHS_tail.options['num_DvCs'])))
 
-    prob.set_val('Tstickmodel.xDot', np.zeros((x_0.shape[0], x_0.shape[1])))
+    # prob.set_val('Tstickmodel.xDot', np.zeros((x_0.shape[0], x_0.shape[1])))
     prob.set_val('Tstickmodel.Xac', np.zeros(18))
     prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
     prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
     prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
     prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
 
-    prob.set_val('Tstickmodel.x', x_0)
 
     # Solve Model
     prob.run_model()
@@ -843,4 +1028,194 @@ def test_t_beam_computation():
 
     # Showing the above plot
     plt.show()
-    pass
+
+
+    # Compute proper fuselage tip deflection:
+    h_expr = 0.1
+    w_expr = 0.1
+
+    I_expr = (h_expr**3*w_expr) / 12
+
+    F = 2*Load
+
+    kappa = 5/6
+
+    joint_deflection = (F*(eta4*L)**3)/(3*69e9*I_expr) - (F*eta4*L)/(kappa*h_expr*w_expr*1e20)
+
+    actual_deflection = r_fuse_end[2, -2]
+
+    np.testing.assert_almost_equal(joint_deflection, actual_deflection, decimal=2)
+
+def test_dynamic_t_beam_computation():
+    # importing matplotlib package
+    import matplotlib.pyplot as plt
+
+    model = om.Group()
+
+    t_initial = 0.0
+    t_final = 15.0
+    time_step = 1/25
+
+    num_timesteps = int((t_final - t_initial) / time_step)
+
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 7
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L = 10
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=num_timesteps, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    Load = 0 # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    # Test joints for the geometry
+    joints = []
+    eta4 = 0.95
+    joint1 = JointDefinition('Fuse_to_RHT', 'Fuselage', eta4, 'FuseRHT', 0.0)
+    joints.append(joint1)
+    joint2 = JointDefinition('Fuse_to_LHT', 'Fuselage', eta4, 'FuseLHT', 0.0)
+    joints.append(joint2)
+
+    joint_rhs = []
+    joint_rhs.append(joint1)
+
+    joint_lhs = []
+    joint_lhs.append(joint2)
+
+    # RHS Wing
+    n_sections_before_joints_loads = 6
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 2.5
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    RHS_beam = BeamDefinition('FuseRHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'),
+                              G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=num_timesteps, bc=BoundaryType.FREEFREE)
+
+    # LHS Wing
+
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 2.5
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, -L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    LHS_beam = BeamDefinition('FuseLHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'),
+                              G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=num_timesteps, bc=BoundaryType.FREEFREE)
+
+    # Some constraint
+    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint_2 = StrenghtAggregatedConstraint(name="basic_constraint_rht")
+    str_constraint_3 = StrenghtAggregatedConstraint(name="basic_constraint_lht")
+
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+    stress_model_2 = EulerBernoulliStressModel(name='EBRectangular_rht')
+    stress_model_3 = EulerBernoulliStressModel(name='EBRectangular_lht')
+
+    # Adding Joints to the stickmodel group
+
+    fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=[], joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    RHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint_2], stress_definition=stress_model_2,
+                                                     num_interp_sections=0)
+
+    LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint_3], stress_definition=stress_model_3,
+                                                     num_interp_sections=0)
+
+    T_stickmodel = BeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step,
+                                  load_function=t_beam_sinusoidal_load)
+
+    input_fuser = StickModelFeeder(beam_list=[fuselage, RHS_tail, LHS_tail])
+
+    input_return = StickModelDemultiplexer(beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
+    model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+    model.add_subsystem(name='outputStickmodel', subsys=input_return)
+
+    # Setting up connections:
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_1')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_2')
+
+    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+
+    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
+    model.connect('outputStickmodel.x_1', 'FuseRHT.DoubleSymmetricBeamInterface.x')
+    model.connect('outputStickmodel.x_2', 'FuseLHT.DoubleSymmetricBeamInterface.x')
+
+    prob = om.Problem(model)
+    prob.setup()
+
+    # Input design variables
+    prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((fuselage.options['beam_shape'].value * fuselage.options['num_DvCs'])))
+    prob.set_val('FuseRHT.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((RHS_tail.options['beam_shape'].value * RHS_tail.options['num_DvCs'])))
+    prob.set_val('FuseLHT.DoubleSymmetricBeamInterface.cs', 0.1 * np.ones((LHS_tail.options['beam_shape'].value * LHS_tail.options['num_DvCs'])))
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+    prob.run_model()
+
+    # Gather data:
+    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
+    x_rht = prob.get_val('FuseRHT.DoubleSymmetricBeamInterface.x')
+    x_lht = prob.get_val('FuseLHT.DoubleSymmetricBeamInterface.x')
+
+    r_fuselage = np.squeeze(x_fuselage[146, :])
+    r_rht = np.squeeze(x_rht[110, :])
+    r_lht = np.squeeze(x_lht[110, :])
+
+    t = T_stickmodel.numeric_storage['time']
+
+    fig1 = plt.figure("Figure 1")
+
+    ax11 = plt.subplot(111)
+
+    ax11.plot(t, r_fuselage, color='r')
+
+    ax11.plot(t, r_rht, color='b')
+
+    ax11.plot(t, r_lht, color='g')
+
+
+    ax11.set_xlabel('Time (s) 1-fuse 2-rht 3-lht')
+    ax11.set_ylabel('Tip deflection (m)')
+    ax11.grid(True)
+
+    plt.show()
+
+
+def t_beam_sinusoidal_load(x, xDot, Xac, forces_dist, moments_dist, forces_conc, moments_conc, time_step, i):
+    # Load does not vary with time and is zero
+    import math
+    # forces_conc[38] = 0 * math.sin(30 * time_step * i)
+    # forces_conc[59] = 0 * math.sin(30 * time_step * i)
+    return Xac, forces_dist, moments_dist, forces_conc, moments_conc
+
+def beam_sinusoidal_load(x, xDot, Xac, forces_dist, moments_dist, forces_conc, moments_conc, time_step, i):
+    # Load does not vary with time and is zero
+    import math
+    forces_conc[-1] = 1e4*math.sin(20*time_step*i)
+    return Xac, forces_dist, moments_dist, forces_conc, moments_conc

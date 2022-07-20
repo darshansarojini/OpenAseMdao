@@ -8,6 +8,12 @@ class Integrator:
             k_start = 0
             newton_iteration_counter = 0
             newton_iteration_convergence_flag = True
+
+            outputs['x'][:, 0] = model.numeric_storage['x0']
+            outputs['x'][:, 1] = model.numeric_storage['x0']
+            inputs['xDot'][:, 0] = np.zeros(model.numeric_storage['x0'].shape[0])
+            inputs['xDot'][:, 1] = np.zeros(model.numeric_storage['x0'].shape[0])
+
             while newton_iteration_convergence_flag:
                 k_start = k_start + 1
                 if k_start > k_lim:
@@ -35,20 +41,19 @@ class Integrator:
                     outputs['x'][:, 1] = outputs['x'][:, 1] + np.squeeze(delta_x_vec)
                 newton_iteration_counter = newton_iteration_counter + 1
         else:
-            n = math.floor(model.symbolic_expressions['Residual'].shape[0] / 18)
-            outputs['x'][0, :] = model.numeric_storage['x0']
-            model.numeric_storage['xDot'][0, :] = np.zeros(18 * n)
+            outputs['x'][:, 0] = model.numeric_storage['x0']
+            model.numeric_storage['xDot'][:, 0] = np.zeros(model.numeric_storage['x0'].shape[0])
             # Run External Loop:
             for iteration in range(1, model.numeric_storage['max_step'] + 1):
-                print('==================================================================')
-                print(iteration)
+                # print('==================================================================')
+                # print(iteration)
                 model.numeric_storage['current_step'] = iteration
                 model.numeric_storage['time'][iteration] = model.numeric_storage['time'][iteration - 1] + \
                                                            model.options['time_step']
-                model.numeric_storage['x_minus_1'] = outputs['x'][iteration - 1, :]
-                model.numeric_storage['x_local']   = outputs['x'][iteration - 1, :]
+                model.numeric_storage['x_minus_1'] = outputs['x'][:, iteration - 1]
+                model.numeric_storage['x_local'] = outputs['x'][:, iteration - 1]
                 if iteration >= 2:
-                    model.numeric_storage['x_minus_2'] = outputs['x'][iteration - 2, :]
+                    model.numeric_storage['x_minus_2'] = outputs['x'][:, iteration - 2]
 
                 # Now figuring out constants for time marching scheme:
                 if bdf_order == 1:
@@ -89,6 +94,7 @@ class Integrator:
                                                                 model.numeric_storage['Xac'], model.numeric_storage['forces_dist'],
                                                                 model.numeric_storage['moments_dist'], model.numeric_storage['forces_conc'],
                                                                 model.numeric_storage['moments_conc'], inputs['cs'])
+
                     Jac = model.symbolic_functions['Jacobian'](model.numeric_storage['x_local'], model.numeric_storage['xDot_local'],
                                                                model.numeric_storage['Xac'],
                                                                model.numeric_storage['forces_dist'],
@@ -131,44 +137,5 @@ class Integrator:
                     newton_iteration_counter = newton_iteration_counter + 1
 
                 # Record dynamics
-                outputs['x'][iteration, :] = model.numeric_storage['x_local']
-                model.numeric_storage['xDot'][iteration, :] = model.numeric_storage['xDot_local']
-
-
-class StaticIntegrator:
-    def __init__(self, tolerance, model, inputs, outputs, debug_flag: bool = True):
-        k_lim = 500  # Limits to make sure the system does not get stuck in an infinite convergence loop
-        k_start = 0
-        newton_iteration_counter = 0
-        newton_iteration_convergence_flag = True
-        while newton_iteration_convergence_flag:
-            k_start = k_start + 1
-            if k_start > k_lim:
-                print('Newton iteration limit reached')
-                break
-            Fty = model.symbolic_functions['Residuals'](outputs['x'], inputs['xDot'], inputs['Xac'], inputs['forces_dist'],
-                               inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
-            Jac = model.symbolic_functions['Jacobian'](outputs['x'], inputs['xDot'], inputs['Xac'], inputs['forces_dist'],
-                               inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
-
-            dRdX = Jac[0:model.symbolic_expressions['Residual'].shape[0],
-                   0:model.symbolic_expressions['Residual'].shape[0]]
-
-            delta_x_vec = np.linalg.solve(dRdX, -Fty)
-
-            newton_iteration_convergence_flag = False
-
-            norm_res = np.linalg.norm(Fty)
-
-            if norm_res > tolerance:  # The process is not yet done
-                newton_iteration_convergence_flag = True
-            if newton_iteration_convergence_flag == 0:
-                break  # we are done
-            else:
-                # new guess
-                outputs['x'] = outputs['x'] + np.squeeze(delta_x_vec)
-            newton_iteration_counter = newton_iteration_counter + 1
-
-        if debug_flag:
-            print('Condition number at converged Newton iterations: {:.10e}'.format(np.linalg.cond(dRdX)))
-        return
+                outputs['x'][:, iteration] = model.numeric_storage['x_local']
+                model.numeric_storage['xDot'][:, iteration] = model.numeric_storage['xDot_local']

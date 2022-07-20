@@ -651,7 +651,8 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.options.declare('time_step', types=float, default=1.0)    # default is only 1 timestep
         self.options.declare('order', types=int, default=2)
         self.options.declare('tolerance', types=float, default=1e-8)
-
+        self.options.declare('load_function', default=[])
+        # General Variables
         self.options.declare('load_factor', types=float)
         self.options.declare('beam_list')
         self.options.declare('joint_reference')
@@ -662,10 +663,11 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.symbolics = {}
         self.symbolic_functions = {}
         self.symbolic_expressions = {}
+        self.numeric_storage = {}
         self.seq = []
 
-        t_gamma = 0.03  # Default values are 0.03
-        t_epsilon = 0.03
+        t_gamma = 0.01  # Default values are 0.03
+        t_epsilon = 0.01
 
         self.t_gamma_c = t_gamma
         self.t_epsilon_s = t_epsilon
@@ -694,25 +696,32 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         # Add the outputs from this stickmodel class (just a single beam)
         self.add_output('x', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']+1))
-        self.declare_partials('x', 'x')
 
-    def apply_nonlinear(self, inputs, outputs, residuals, discrete_inputs=None,
-                        discrete_outputs=None):
-        if 'x' in residuals:
-            residuals['x'] = self.symbolic_functions['Residuals'](x=outputs['x'][:, -1], xDot=inputs['xDot'][:, -1], Xac=inputs['Xac'],
-                                                                  fDist=inputs['forces_dist'], mDist=inputs['moments_dist'],
-                                                                  fConc=inputs['forces_conc'], mConc=inputs['moments_conc'],
-                                                                  csDVs=inputs['cs'])['r']
-            print(np.linalg.norm(residuals['x']))
+        # Initialize numerical integration variables:
+        if len(self.options['joint_reference']) > 0:
+            self.numeric_storage['x0'] = np.hstack((self.beam_reference['x0'], np.zeros((12 * len(self.options['joint_reference'])))))
+        else:
+            self.numeric_storage['x0'] = self.beam_reference['x0']
 
-        pass
+        if self.options['num_timesteps'] > 1:
+            # Forces updated via dynamic function
+            self.numeric_storage['Xac'] = np.zeros(18)
+            self.numeric_storage['forces_dist'] = np.zeros(3 * self.beam_reference['forces_dist'].shape[1])
+            self.numeric_storage['moments_dist'] = np.zeros(3 * self.beam_reference['moments_dist'].shape[1])
+            self.numeric_storage['forces_conc'] = np.zeros(3 * self.beam_reference['forces_conc'].shape[1])
+            self.numeric_storage['moments_conc'] = np.zeros(3 * self.beam_reference['moments_conc'].shape[1])
 
-    def linearize(self, inputs, outputs, partials, discrete_inputs=None, discrete_outputs=None):
-
-        Jac = self.symbolic_functions['Jacobian'](outputs['x'][:, -1], inputs['xDot'][:, -1], inputs['Xac'], inputs['forces_dist'],
-                                                  inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
-
-        partials['x', 'x'] = Jac[0:self.symbolic_expressions['Residual'].shape[0], 0:self.symbolic_expressions['Residual'].shape[0]]
+            self.numeric_storage['max_step'] = self.options['num_timesteps']        # Arrays in Python are zero-based
+            self.numeric_storage['time'] = np.zeros(self.options['num_timesteps'] + 1)  # Initially all are zeros
+            self.numeric_storage['current_step'] = 1
+            self.numeric_storage['xDot'] = np.zeros((self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps'] + 1))
+            self.numeric_storage['xDot_local'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
+            self.numeric_storage['x_local'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
+            self.numeric_storage['x_minus_1'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
+            self.numeric_storage['x_minus_2'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
+            self.numeric_storage['k0'] = 0
+            self.numeric_storage['k1'] = 0
+            self.numeric_storage['k2'] = 0
 
     def solve_nonlinear(self, inputs, outputs):
         Integrator(tolerance=self.options['tolerance'], model=self, bdf_order=self.options['order'], inputs=inputs, outputs=outputs)
@@ -723,8 +732,8 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         # Relevant Expressions: cs, x, xDot, x_slice, xDot_slice, D, oneover, mu, i_matrix, delta_r_CG_tilde, Einv, E, EA, forces_dist, moments_dist, forces_conc, moments_conc
         variable_categories = ['cs', 'x', 'xDot', 'x_slice', 'xDot_slice', 'D', 'oneover', 'mu', 'i_matrix', 'delta_r_CG_tilde', 'Einv', 'E', 'EA', 'forces_dist', 'moments_dist',
-                               'forces_conc', 'moments_conc', 'r0', 'th0', 'delta_s0', 'K0a', 'BC', 'seq']
-        variable_types = [0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 3, 2]  # 0: SX, 1: list
+                               'forces_conc', 'moments_conc', 'r0', 'th0', 'delta_s0', 'x0', 'K0a', 'BC', 'seq']
+        variable_types = [0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 3, 2]  # 0: SX, 1: list
 
         self.beam_reference['cs'] = {}
         self.beam_reference['x'] = {}
@@ -745,6 +754,7 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.beam_reference['moments_conc'] = {}
         self.beam_reference['r0'] = []
         self.beam_reference['th0'] = []
+        self.beam_reference['x0'] = []
         self.beam_reference['delta_s0'] = []
         self.beam_reference['K0a'] = []
         self.beam_reference['BC'] = {}
@@ -771,7 +781,8 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
                     if not isinstance(self.beam_reference[variable_categories[a_variable_index]], SX):
                         self.beam_reference[variable_categories[a_variable_index]] = a_beam.symbolic_expressions[variable_categories[a_variable_index]]
                     else:
-                        if a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[0] > a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[1]:
+                        if (a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[0] > a_beam.symbolic_expressions[variable_categories[a_variable_index]].size()[1]) or (
+                                variable_categories[a_variable_index] == 'x' or variable_categories[a_variable_index] == 'xDot'):
                             # Vertically oriented vector
                             self.beam_reference[variable_categories[a_variable_index]] = vertcat(self.beam_reference[variable_categories[a_variable_index]],
                                                                                                  a_beam.symbolic_expressions[variable_categories[a_variable_index]])
@@ -946,3 +957,6 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
             Residuals = self.JointResJac(Residuals, stickModel, JointProp, X)
 
         return Residuals
+
+    def update_time_varying_quantities(self, x, xDot, i):
+        self.numeric_storage['Xac'], self.numeric_storage['forces_dist'], self.numeric_storage['moments_dist'], self.numeric_storage['forces_conc'],  self.numeric_storage['moments_conc'] = self.options['load_function'](x, xDot, self.numeric_storage['Xac'], self.numeric_storage['forces_dist'], self.numeric_storage['moments_dist'], self.numeric_storage['forces_conc'],  self.numeric_storage['moments_conc'], self.options['time_step'], i)
