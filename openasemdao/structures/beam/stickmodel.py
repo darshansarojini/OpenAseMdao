@@ -657,6 +657,8 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.options.declare('beam_list')
         self.options.declare('joint_reference')
         self.options.declare('num_timesteps')
+        self.options.declare('t_gamma', default=0.03)
+        self.options.declare('t_epsilon', default=0.03)
         # Generated structures:
         self.beam_reference = {}
         self.JointProp = {}
@@ -666,17 +668,14 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.numeric_storage = {}
         self.seq = []
 
-        t_gamma = 0.01  # Default values are 0.03
-        t_epsilon = 0.01
-
-        self.t_gamma_c = t_gamma
-        self.t_epsilon_s = t_epsilon
-        self.t_gamma_n = t_gamma
-        self.t_kappa_c = t_epsilon
-        self.t_kappa_s = t_gamma
-        self.t_kappa_n = t_epsilon
-
     def setup(self):
+        self.t_gamma_c = self.options['t_gamma']
+        self.t_epsilon_s = self.options['t_epsilon']
+        self.t_gamma_n = self.options['t_gamma']
+        self.t_kappa_c = self.options['t_epsilon']
+        self.t_kappa_s = self.options['t_gamma']
+        self.t_kappa_n = self.options['t_epsilon']
+
         # First, It's necessary to generate all the symbolics necessary for the jointed system to work:
 
         self.create_symbolic_function(self.options['beam_list'], self.options['joint_reference'])
@@ -725,7 +724,6 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
     def solve_nonlinear(self, inputs, outputs):
         Integrator(tolerance=self.options['tolerance'], model=self, bdf_order=self.options['order'], inputs=inputs, outputs=outputs)
-
     def create_symbolic_function(self, beams, joints):
 
         # Procedure for itemization of beam:

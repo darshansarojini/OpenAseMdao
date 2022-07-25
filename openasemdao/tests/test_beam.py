@@ -2,7 +2,7 @@ from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentati
 from openasemdao.structures.inputs.inputs import BeamDefinition, PointLoadDefinition, JointDefinition
 from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
-from openasemdao.structures.beam.constraints import StrenghtAggregatedConstraint
+from openasemdao.structures.beam.constraints import StrengthAggregatedConstraint
 from openasemdao.structures.beam.stress_models import EulerBernoulliStressModel
 from openasemdao.structures.beam.stickmodel import BeamStickModel, StickModelFeeder, StickModelDemultiplexer
 from openasemdao import Q_
@@ -61,7 +61,7 @@ def test_zero_element_generation():
     num_zero_elements = len(unique(etas))
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -164,7 +164,7 @@ def test_axial_stress_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -173,6 +173,20 @@ def test_axial_stress_computation():
                                                         constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    # Add the stress definition to the general model
+    model.add_subsystem('DoubleSymmetricStressModel', sample_beam.options['stress_definition'])
+    # Add the constraint:
+    if len(sample_beam.options['constraints']) > 0:
+        for a_constraint in sample_beam.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.corner_points', 'DoubleSymmetricStressModel.corner_points')
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricStressModel.cs')
 
     prob = om.Problem(model)
     prob.setup()
@@ -206,7 +220,7 @@ def test_axial_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
 
     prob.run_model()
 
@@ -221,7 +235,7 @@ def test_axial_stress_computation():
 
     sigma_expected = M[0, :] * y / I_xx
 
-    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
 
     sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
@@ -245,7 +259,7 @@ def test_fuse_axial_stress_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -254,6 +268,20 @@ def test_fuse_axial_stress_computation():
                                                         constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    # Add the stress definition to the general model
+    model.add_subsystem('DoubleSymmetricStressModel', sample_beam.options['stress_definition'])
+    # Add the constraint:
+    if len(sample_beam.options['constraints']) > 0:
+        for a_constraint in sample_beam.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.corner_points', 'DoubleSymmetricStressModel.corner_points')
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricStressModel.cs')
 
     prob = om.Problem(model)
     prob.setup()
@@ -287,7 +315,7 @@ def test_fuse_axial_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
 
     prob.run_model()
 
@@ -302,7 +330,7 @@ def test_fuse_axial_stress_computation():
 
     sigma_expected = -M[1, :] * y / I_xx
 
-    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
 
     sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
@@ -326,7 +354,7 @@ def test_shear_stress_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -336,6 +364,20 @@ def test_shear_stress_computation():
                                                         stress_definition=stress_model, num_interp_sections=1)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    # Add the stress definition to the general model
+    model.add_subsystem('DoubleSymmetricStressModel', sample_beam.options['stress_definition'])
+    # Add the constraint:
+    if len(sample_beam.options['constraints']) > 0:
+        for a_constraint in sample_beam.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.corner_points', 'DoubleSymmetricStressModel.corner_points')
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricStressModel.cs')
 
     prob = om.Problem(model)
     prob.setup()
@@ -367,7 +409,7 @@ def test_shear_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
 
     prob.run_model()
 
@@ -379,7 +421,7 @@ def test_shear_stress_computation():
     sigma_expected = 1.5 * F[2, :] / (h_expr * w_expr)  # For a rectangular section, value of maximum shear
     # stress will be equal to the 1.5 times of mean shear stress.
 
-    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
 
     sigma_actual_tensile = sigma_actual[9 * r0.shape[1]:10 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
@@ -403,7 +445,7 @@ def test_torsional_stress_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -413,6 +455,20 @@ def test_torsional_stress_computation():
                                                         stress_definition=stress_model, num_interp_sections=3)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    # Add the stress definition to the general model
+    model.add_subsystem('DoubleSymmetricStressModel', sample_beam.options['stress_definition'])
+    # Add the constraint:
+    if len(sample_beam.options['constraints']) > 0:
+        for a_constraint in sample_beam.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.corner_points', 'DoubleSymmetricStressModel.corner_points')
+    model.connect('RectBeam.DoubleSymmetricBeamInterface.cs_out', 'DoubleSymmetricStressModel.cs')
 
     prob = om.Problem(model)
     prob.setup()
@@ -444,7 +500,7 @@ def test_torsional_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
 
     prob.run_model()
 
@@ -460,7 +516,7 @@ def test_torsional_stress_computation():
         tau_torsion = ((3 * M[1, :]) / (h_expr * w_expr ** 2)) * (
                 1 + 0.6095 * (w_expr / h_expr) + 0.8865 * (w_expr / h_expr) ** 2 - 1.8023 * (w_expr / h_expr) ** 3 + 0.91 * (w_expr / h_expr) ** 4)
 
-    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
 
     sigma_actual_torsion = sigma_actual[4 * r0.shape[1]:5 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(tau_torsion), sigma_actual_torsion)
@@ -484,7 +540,7 @@ def test_box_axial_stress_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -493,6 +549,20 @@ def test_box_axial_stress_computation():
                                         constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    # Add the stress definition to the general model
+    model.add_subsystem('BoxBeamStressModel', sample_beam.options['stress_definition'])
+    # Add the constraint:
+    if len(sample_beam.options['constraints']) > 0:
+        for a_constraint in sample_beam.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('BoxBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+
+    model.connect('RectBeam.BoxBeamInterface.corner_points', 'BoxBeamStressModel.corner_points')
+    model.connect('RectBeam.BoxBeamInterface.cs_out', 'BoxBeamStressModel.cs')
 
     prob = om.Problem(model)
     prob.setup()
@@ -530,9 +600,9 @@ def test_box_axial_stress_computation():
 
     cs = np.hstack((h, w, t_left, t_top, t_right, t_bot))
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
+    prob.set_val('RectBeam.BoxBeamInterface.cs', cs)
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('BoxBeamStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
 
     prob.run_model()
 
@@ -553,7 +623,7 @@ def test_box_axial_stress_computation():
 
     sigma_expected = M[0, :] * y / I_xx
 
-    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+    sigma_actual = prob.get_val('BoxBeamStressModel.sigma')
 
     sigma_actual_tensile = sigma_actual[6 * r0.shape[1]:7 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
@@ -577,7 +647,7 @@ def test_box_torsion_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular')
@@ -586,6 +656,20 @@ def test_box_torsion_computation():
                                         constraints=[str_constraint], stress_definition=stress_model, debug_flag=True, num_interp_sections=4)
 
     model.add_subsystem(name='RectBeam', subsys=sample_beam)
+
+    # Add the stress definition to the general model
+    model.add_subsystem('BoxBeamStressModel', sample_beam.options['stress_definition'])
+    # Add the constraint:
+    if len(sample_beam.options['constraints']) > 0:
+        for a_constraint in sample_beam.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('BoxBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+
+    model.connect('RectBeam.BoxBeamInterface.corner_points', 'BoxBeamStressModel.corner_points')
+    model.connect('RectBeam.BoxBeamInterface.cs_out', 'BoxBeamStressModel.cs')
 
     prob = om.Problem(model)
     prob.setup()
@@ -625,9 +709,9 @@ def test_box_torsion_computation():
 
     cs = np.hstack((h, w, t_left, t_top, t_right, t_bot))
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
+    prob.set_val('RectBeam.BoxBeamInterface.cs', cs)
 
-    prob.set_val('RectBeam.DoubleSymmetricBeamInterface.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('BoxBeamStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
 
     prob.run_model()
 
@@ -648,7 +732,7 @@ def test_box_torsion_computation():
 
     tau_top_theoretical = Torsion * np.ones((1, r0.shape[1])) / (2 * t_top_expr * A_inner)
 
-    sigma_actual = prob.get_val('RectBeam.DoubleSymmetricBeamStressModel.sigma')
+    sigma_actual = prob.get_val('BoxBeamStressModel.sigma')
 
     tau_top = sigma_actual[9 * r0.shape[1]:10 * r0.shape[1], 1]
     tau_right = sigma_actual[10 * r0.shape[1]:11 * r0.shape[1], 1]
@@ -656,7 +740,8 @@ def test_box_torsion_computation():
     np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass
 
-def test_rect_beam_computation():
+
+def test_lean_rect_beam_computation():
     model = om.Group()
     # Generate a sequence of points for the beam
     n_sections_before_joints_loads = 7
@@ -683,7 +768,7 @@ def test_rect_beam_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse")
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
 
@@ -701,13 +786,25 @@ def test_rect_beam_computation():
     model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
     model.add_subsystem(name='outputStickmodel', subsys=input_return)
 
+    # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
     # Setting up connections:
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
 
     model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
     model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
 
-    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
 
     prob = om.Problem(model)
     prob.setup()
@@ -730,7 +827,7 @@ def test_rect_beam_computation():
     prob.run_model()
 
     # Gather data:
-    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
+    x_fuselage = prob.get_val('outputStickmodel.x_0')
 
     # Sort data:
     x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0] / 18), 18)).T
@@ -753,7 +850,8 @@ def test_rect_beam_computation():
 
     np.testing.assert_almost_equal(theoretical_deflection, endpoint_deflection, decimal=3)
 
-def test_rect_beam_dynamic_computation():
+
+def test_rect_lean_beam_dynamic_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
 
@@ -783,14 +881,15 @@ def test_rect_beam_dynamic_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse")
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
 
     fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model,
                                                      num_interp_sections=0)
 
-    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step, load_function=beam_sinusoidal_load)
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step, load_function=beam_sinusoidal_load,
+                                  t_gamma=0.0, t_epsilon=0.0)
 
     input_fuser = StickModelFeeder(beam_list=[fuselage])
 
@@ -801,13 +900,26 @@ def test_rect_beam_dynamic_computation():
     model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
     model.add_subsystem(name='outputStickmodel', subsys=input_return)
 
+    # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
     # Setting up connections:
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
 
     model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
     model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
 
-    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
+
 
     prob = om.Problem(model)
     prob.setup()
@@ -830,7 +942,7 @@ def test_rect_beam_dynamic_computation():
     prob.run_model()
 
     # Gather data:
-    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
+    x_fuselage = prob.get_val('outputStickmodel.x_0')
 
     r_fuselage = np.squeeze(x_fuselage[362, :])
 
@@ -848,7 +960,8 @@ def test_rect_beam_dynamic_computation():
 
     plt.show()
 
-def test_t_beam_computation():
+
+def test_t_beam_lean_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
 
@@ -866,7 +979,7 @@ def test_t_beam_computation():
     # Test loads for the geometry
     loads = []
     label1 = 'load1'
-    Load = 200 # Newton
+    Load = 200  # Newton
     f1 = Q_(np.array([0, 0, Load]), 'newton')
     m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
     eta1 = 1.0
@@ -910,9 +1023,9 @@ def test_t_beam_computation():
                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
-    str_constraint_2 = StrenghtAggregatedConstraint(name="basic_constraint_rht")
-    str_constraint_3 = StrenghtAggregatedConstraint(name="basic_constraint_lht")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint_2 = StrengthAggregatedConstraint(name="basic_constraint_rht")
+    str_constraint_3 = StrengthAggregatedConstraint(name="basic_constraint_lht")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
@@ -951,9 +1064,48 @@ def test_t_beam_computation():
     model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
     model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
 
-    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
-    model.connect('outputStickmodel.x_1', 'FuseRHT.DoubleSymmetricBeamInterface.x')
-    model.connect('outputStickmodel.x_2', 'FuseLHT.DoubleSymmetricBeamInterface.x')
+    # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseRHTDoubleSymmetricBeamStressModel', RHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(RHS_tail.options['constraints']) > 0:
+        for a_constraint in RHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.corner_points', 'FuseRHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_1', 'FuseRHTDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseLHTDoubleSymmetricBeamStressModel', LHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(LHS_tail.options['constraints']) > 0:
+        for a_constraint in LHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.corner_points', 'FuseLHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_2', 'FuseLHTDoubleSymmetricBeamStressModel.x')
 
     prob = om.Problem(model)
     prob.setup()
@@ -972,17 +1124,16 @@ def test_t_beam_computation():
     prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
     prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
 
-
     # Solve Model
     prob.run_model()
 
     # Gather data:
-    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
-    x_rht = prob.get_val('FuseRHT.DoubleSymmetricBeamInterface.x')
-    x_lht = prob.get_val('FuseLHT.DoubleSymmetricBeamInterface.x')
+    x_fuselage = prob.get_val('outputStickmodel.x_0')
+    x_rht = prob.get_val('outputStickmodel.x_1')
+    x_lht = prob.get_val('outputStickmodel.x_2')
 
     # Sort data:
-    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0]/18), 18)).T
+    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0] / 18), 18)).T
     x_rht_end = np.reshape(np.squeeze(x_rht[:, 1]), (int(x_rht.shape[0] / 18), 18)).T
     x_lht_end = np.reshape(np.squeeze(x_lht[:, 1]), (int(x_lht.shape[0] / 18), 18)).T
 
@@ -990,8 +1141,7 @@ def test_t_beam_computation():
     x_rht_start = np.reshape(np.squeeze(x_rht[:, 0]), (int(x_rht.shape[0] / 18), 18)).T
     x_lht_start = np.reshape(np.squeeze(x_lht[:, 0]), (int(x_lht.shape[0] / 18), 18)).T
 
-
-    #Plotting initial state:
+    # Plotting initial state:
 
     # creating an empty canvas
     fig = plt.figure()
@@ -1029,24 +1179,24 @@ def test_t_beam_computation():
     # Showing the above plot
     plt.show()
 
-
     # Compute proper fuselage tip deflection:
     h_expr = 0.1
     w_expr = 0.1
 
-    I_expr = (h_expr**3*w_expr) / 12
+    I_expr = (h_expr ** 3 * w_expr) / 12
 
-    F = 2*Load
+    F = 2 * Load
 
-    kappa = 5/6
+    kappa = 5 / 6
 
-    joint_deflection = (F*(eta4*L)**3)/(3*69e9*I_expr) - (F*eta4*L)/(kappa*h_expr*w_expr*1e20)
+    joint_deflection = (F * (eta4 * L) ** 3) / (3 * 69e9 * I_expr) - (F * eta4 * L) / (kappa * h_expr * w_expr * 1e20)
 
     actual_deflection = r_fuse_end[2, -2]
 
     np.testing.assert_almost_equal(joint_deflection, actual_deflection, decimal=2)
 
-def test_dynamic_t_beam_computation():
+
+def test_dynamic_t_beam_lean_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
 
@@ -1115,9 +1265,9 @@ def test_dynamic_t_beam_computation():
                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=num_timesteps, bc=BoundaryType.FREEFREE)
 
     # Some constraint
-    str_constraint = StrenghtAggregatedConstraint(name="basic_constraint_fuse")
-    str_constraint_2 = StrenghtAggregatedConstraint(name="basic_constraint_rht")
-    str_constraint_3 = StrenghtAggregatedConstraint(name="basic_constraint_lht")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse",debug_flag=True)
+    str_constraint_2 = StrengthAggregatedConstraint(name="basic_constraint_rht")
+    str_constraint_3 = StrengthAggregatedConstraint(name="basic_constraint_lht")
 
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
@@ -1136,7 +1286,7 @@ def test_dynamic_t_beam_computation():
                                                      num_interp_sections=0)
 
     T_stickmodel = BeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step,
-                                  load_function=t_beam_sinusoidal_load)
+                                  load_function=t_beam_sinusoidal_load, t_gamma=0.0, t_epsilon=0.0)
 
     input_fuser = StickModelFeeder(beam_list=[fuselage, RHS_tail, LHS_tail])
 
@@ -1153,13 +1303,51 @@ def test_dynamic_t_beam_computation():
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
     model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_1')
     model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_2')
-
     model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
     model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
 
-    model.connect('outputStickmodel.x_0', 'Fuselage.DoubleSymmetricBeamInterface.x')
-    model.connect('outputStickmodel.x_1', 'FuseRHT.DoubleSymmetricBeamInterface.x')
-    model.connect('outputStickmodel.x_2', 'FuseLHT.DoubleSymmetricBeamInterface.x')
+    # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseRHTDoubleSymmetricBeamStressModel', RHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(RHS_tail.options['constraints']) > 0:
+        for a_constraint in RHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.corner_points', 'FuseRHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_1', 'FuseRHTDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseLHTDoubleSymmetricBeamStressModel', LHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(LHS_tail.options['constraints']) > 0:
+        for a_constraint in LHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.corner_points', 'FuseLHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_2', 'FuseLHTDoubleSymmetricBeamStressModel.x')
 
     prob = om.Problem(model)
     prob.setup()
@@ -1179,9 +1367,9 @@ def test_dynamic_t_beam_computation():
     prob.run_model()
 
     # Gather data:
-    x_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.x')
-    x_rht = prob.get_val('FuseRHT.DoubleSymmetricBeamInterface.x')
-    x_lht = prob.get_val('FuseLHT.DoubleSymmetricBeamInterface.x')
+    x_fuselage = prob.get_val('outputStickmodel.x_0')
+    x_rht = prob.get_val('outputStickmodel.x_1')
+    x_lht = prob.get_val('outputStickmodel.x_2')
 
     r_fuselage = np.squeeze(x_fuselage[146, :])
     r_rht = np.squeeze(x_rht[110, :])
@@ -1213,6 +1401,7 @@ def t_beam_sinusoidal_load(x, xDot, Xac, forces_dist, moments_dist, forces_conc,
     # forces_conc[38] = 0 * math.sin(30 * time_step * i)
     # forces_conc[59] = 0 * math.sin(30 * time_step * i)
     return Xac, forces_dist, moments_dist, forces_conc, moments_conc
+
 
 def beam_sinusoidal_load(x, xDot, Xac, forces_dist, moments_dist, forces_conc, moments_conc, time_step, i):
     # Load does not vary with time and is zero
