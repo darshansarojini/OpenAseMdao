@@ -724,6 +724,7 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
     def solve_nonlinear(self, inputs, outputs):
         Integrator(tolerance=self.options['tolerance'], model=self, bdf_order=self.options['order'], inputs=inputs, outputs=outputs)
+
     def create_symbolic_function(self, beams, joints):
 
         # Procedure for itemization of beam:

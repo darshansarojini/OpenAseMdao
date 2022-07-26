@@ -181,7 +181,10 @@ def test_axial_stress_computation():
         for a_constraint in sample_beam.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('DoubleSymmetricStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('DoubleSymmetricStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('DoubleSymmetricStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('DoubleSymmetricStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
 
@@ -235,7 +238,8 @@ def test_axial_stress_computation():
 
     sigma_expected = M[0, :] * y / I_xx
 
-    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma_axial')
+    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
 
     sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
@@ -276,7 +280,10 @@ def test_fuse_axial_stress_computation():
         for a_constraint in sample_beam.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('DoubleSymmetricStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('DoubleSymmetricStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('DoubleSymmetricStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('DoubleSymmetricStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
 
@@ -330,7 +337,8 @@ def test_fuse_axial_stress_computation():
 
     sigma_expected = -M[1, :] * y / I_xx
 
-    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma_axial')
+    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
 
     sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
@@ -372,7 +380,10 @@ def test_shear_stress_computation():
         for a_constraint in sample_beam.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('DoubleSymmetricStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('DoubleSymmetricStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('DoubleSymmetricStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('DoubleSymmetricStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
 
@@ -421,9 +432,10 @@ def test_shear_stress_computation():
     sigma_expected = 1.5 * F[2, :] / (h_expr * w_expr)  # For a rectangular section, value of maximum shear
     # stress will be equal to the 1.5 times of mean shear stress.
 
-    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.tau_max_n')
+    sigma_actual = np.reshape(sigma_actual, (2, 1 * r0.shape[1])).T
 
-    sigma_actual_tensile = sigma_actual[9 * r0.shape[1]:10 * r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[0 * r0.shape[1]:1 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
@@ -463,7 +475,10 @@ def test_torsional_stress_computation():
         for a_constraint in sample_beam.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('DoubleSymmetricStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('DoubleSymmetricStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('DoubleSymmetricStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('DoubleSymmetricStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('DoubleSymmetricStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
 
@@ -516,9 +531,11 @@ def test_torsional_stress_computation():
         tau_torsion = ((3 * M[1, :]) / (h_expr * w_expr ** 2)) * (
                 1 + 0.6095 * (w_expr / h_expr) + 0.8865 * (w_expr / h_expr) ** 2 - 1.8023 * (w_expr / h_expr) ** 3 + 0.91 * (w_expr / h_expr) ** 4)
 
-    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma')
+    sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma_vm')
 
-    sigma_actual_torsion = sigma_actual[4 * r0.shape[1]:5 * r0.shape[1], 1]
+    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
+
+    sigma_actual_torsion = sigma_actual[0 * r0.shape[1]:1 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(tau_torsion), sigma_actual_torsion)
     pass
 
@@ -557,7 +574,9 @@ def test_box_axial_stress_computation():
         for a_constraint in sample_beam.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('BoxBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('BoxBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('BoxBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('BoxBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
 
     # Connect the stress model with the beam interface
 
@@ -623,9 +642,11 @@ def test_box_axial_stress_computation():
 
     sigma_expected = M[0, :] * y / I_xx
 
-    sigma_actual = prob.get_val('BoxBeamStressModel.sigma')
+    sigma_actual = prob.get_val('BoxBeamStressModel.sigma_axial')
 
-    sigma_actual_tensile = sigma_actual[6 * r0.shape[1]:7 * r0.shape[1], 1]
+    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
+
+    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
@@ -664,7 +685,9 @@ def test_box_torsion_computation():
         for a_constraint in sample_beam.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('BoxBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('BoxBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('BoxBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('BoxBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
 
     # Connect the stress model with the beam interface
 
@@ -732,10 +755,12 @@ def test_box_torsion_computation():
 
     tau_top_theoretical = Torsion * np.ones((1, r0.shape[1])) / (2 * t_top_expr * A_inner)
 
-    sigma_actual = prob.get_val('BoxBeamStressModel.sigma')
+    sigma_actual = prob.get_val('BoxBeamStressModel.tau_side')
 
-    tau_top = sigma_actual[9 * r0.shape[1]:10 * r0.shape[1], 1]
-    tau_right = sigma_actual[10 * r0.shape[1]:11 * r0.shape[1], 1]
+    sigma_actual = np.reshape(sigma_actual, (2, 4*r0.shape[1])).T
+
+    tau_top = sigma_actual[1 * r0.shape[1]:2 * r0.shape[1], 1]
+    tau_right = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
     np.testing.assert_almost_equal(np.squeeze(tau_right_theoretical), tau_right)
     np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass
@@ -768,7 +793,7 @@ def test_lean_rect_beam_computation():
     joints = []
 
     # Some constraint
-    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse", debug_flag=True)
     # EB stress model
     stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
 
@@ -777,14 +802,8 @@ def test_lean_rect_beam_computation():
 
     T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints)
 
-    input_fuser = StickModelFeeder(beam_list=[fuselage])
-
-    input_return = StickModelDemultiplexer(beam_list=[fuselage], joint_reference=joints)
-
     model.add_subsystem(name='Fuselage', subsys=fuselage)
-    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
     model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
-    model.add_subsystem(name='outputStickmodel', subsys=input_return)
 
     # Add the stress definition to the general model
     model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
@@ -793,17 +812,17 @@ def test_lean_rect_beam_computation():
         for a_constraint in fuselage.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Setting up connections:
-    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
-
-    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
-    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'FuselageDoubleSymmetricBeamStressModel.x')
 
     # Connect the stress model with the beam interface
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
-    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
     model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
 
     prob = om.Problem(model)
@@ -827,7 +846,7 @@ def test_lean_rect_beam_computation():
     prob.run_model()
 
     # Gather data:
-    x_fuselage = prob.get_val('outputStickmodel.x_0')
+    x_fuselage = prob.get_val('Tstickmodel.x')
 
     # Sort data:
     x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0] / 18), 18)).T
@@ -891,14 +910,8 @@ def test_rect_lean_beam_dynamic_computation():
     T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step, load_function=beam_sinusoidal_load,
                                   t_gamma=0.0, t_epsilon=0.0)
 
-    input_fuser = StickModelFeeder(beam_list=[fuselage])
-
-    input_return = StickModelDemultiplexer(beam_list=[fuselage], joint_reference=joints)
-
     model.add_subsystem(name='Fuselage', subsys=fuselage)
-    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
     model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
-    model.add_subsystem(name='outputStickmodel', subsys=input_return)
 
     # Add the stress definition to the general model
     model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
@@ -907,19 +920,18 @@ def test_rect_lean_beam_dynamic_computation():
         for a_constraint in fuselage.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Setting up connections:
-    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
-
-    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
-    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'FuselageDoubleSymmetricBeamStressModel.x')
 
     # Connect the stress model with the beam interface
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
-    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
     model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
-
 
     prob = om.Problem(model)
     prob.setup()
@@ -942,7 +954,7 @@ def test_rect_lean_beam_dynamic_computation():
     prob.run_model()
 
     # Gather data:
-    x_fuselage = prob.get_val('outputStickmodel.x_0')
+    x_fuselage = prob.get_val('Tstickmodel.x')
 
     r_fuselage = np.squeeze(x_fuselage[362, :])
 
@@ -1072,7 +1084,10 @@ def test_t_beam_lean_computation():
         for a_constraint in fuselage.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
@@ -1086,7 +1101,10 @@ def test_t_beam_lean_computation():
         for a_constraint in RHS_tail.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
     model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
@@ -1100,7 +1118,10 @@ def test_t_beam_lean_computation():
         for a_constraint in LHS_tail.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
     model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
@@ -1316,7 +1337,10 @@ def test_dynamic_t_beam_lean_computation():
         for a_constraint in fuselage.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
@@ -1330,7 +1354,10 @@ def test_dynamic_t_beam_lean_computation():
         for a_constraint in RHS_tail.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
     model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
@@ -1344,7 +1371,10 @@ def test_dynamic_t_beam_lean_computation():
         for a_constraint in LHS_tail.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma', a_constraint.options["name"] + '.sigma')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
 
     # Connect the stress model with the beam interface
     model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
