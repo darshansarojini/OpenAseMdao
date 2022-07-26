@@ -613,6 +613,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
                     if isinstance(a_constraint, StrengthAggregatedConstraint):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
                         a_constraint.options["beam_shape"] = self.options["beam_shape"]
+                        a_constraint.options['num_DvCs'] = self.options["num_DvCs"]
                         a_constraint.options["stress_computation"] = self.options['stress_definition']
                         break
         return
@@ -832,6 +833,7 @@ class BoxBeamRepresentation(SymbolicBeam):
                 for a_constraint in self.options["constraints"]:
                     if isinstance(a_constraint, StrengthAggregatedConstraint):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
+                        a_constraint.options['num_DvCs'] = self.options["num_DvCs"]
                         a_constraint.options["beam_shape"] = self.options["beam_shape"]
                         a_constraint.options["stress_computation"] = self.options['stress_definition']
                         break

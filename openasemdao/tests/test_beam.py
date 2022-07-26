@@ -808,7 +808,7 @@ def test_lean_rect_beam_computation():
 
     prob = om.Problem(model)
     prob.setup()
-
+    om.n2(prob)
     # Input design variables
     h = 0.1
     w = 0.5
@@ -1109,6 +1109,8 @@ def test_t_beam_lean_computation():
 
     prob = om.Problem(model)
     prob.setup()
+
+    om.n2(prob)
 
     # Set some initial guesses
 

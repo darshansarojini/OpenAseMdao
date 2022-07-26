@@ -7,6 +7,7 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('name', types=str)  # Just to tag the constraint in particular
         self.options.declare('num_divisions', types=int)  # To generate optional constraint mechanisms
+        self.options.declare('num_DvCs', types=int)  # To know the actual number of cross-sectional variables
         self.options.declare('beam_shape', types=BeamCS)  # Important when defining the number of total cs variables
         self.options.declare('stress_computation')         # Stress related to the aggregator
         self.options.declare('total_stress_constraint', types=dict)
@@ -50,7 +51,7 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
         self.add_input('sigma', shape=(self.stress_input.options['symbolic_stress_functions']['sigma'].size_out(0)[0],
                                        self.stress_input.options['symbolic_stress_functions']['sigma'].size_out(0)[1]))
 
-        self.add_output('cs_strength', shape=(len(self.constraint_bounds), 2))
+        self.add_output('c_strength', shape=(len(self.constraint_bounds) * 2))
 
         J = 0
         for a_constraint_bound in self.constraint_bounds:
@@ -64,12 +65,22 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
             A_n = sum2(sum1(exp(self.options['rho_KS'] * (stress_constraint_n - max_stress_constraint_space_n))))
             aggregated_stress_constraint_negative = max_stress_constraint_space_n + (1 / self.options['rho_KS']) * log(A_n)
 
-            self.symbolic_expressions['total_stress_constraint_'+str(J)] = vertcat(aggregated_stress_constraint_positive, aggregated_stress_constraint_negative)
-
-            self.options['total_stress_constraint']['sym_funct_' + str(J)] = Function("aggregated_stress_constraint",
+            k = 0
+            self.symbolic_expressions['total_stress_constraint_'+str(2 * J)+str(k)] = aggregated_stress_constraint_positive
+            self.options['total_stress_constraint']['sym_funct_' + str(2 * J)+str(k)] = Function("aggregated_stress_constraint" + str(2 * J)+str(k),
                                                                                       [stress_input[
-                                                                                       a_constraint_bound[0] * self.options['num_divisions']:a_constraint_bound[1] * self.options['num_divisions'], :]],
-                                                                                      [self.symbolic_expressions['total_stress_constraint_'+str(J)]])
+                                                                                       a_constraint_bound[0] * self.options['num_divisions']:a_constraint_bound[1] * self.options[
+                                                                                           'num_divisions'], :]],
+                                                                                      [self.symbolic_expressions['total_stress_constraint_' + str(2 * J)+str(k)]])
+            k += 1
+            self.symbolic_expressions['total_stress_constraint_'+str(2 * J) + str(k)] = aggregated_stress_constraint_negative
+            self.options['total_stress_constraint']['sym_funct_' + str(2 * J) + str(k)] = Function("aggregated_stress_constraint" + str(2 * J)+str(k),
+                                                                                                   [stress_input[
+                                                                                                    a_constraint_bound[0] * self.options['num_divisions']:a_constraint_bound[1] *
+                                                                                                                                                          self.options[
+                                                                                                                                                              'num_divisions'], :]],
+                                                                                                   [self.symbolic_expressions['total_stress_constraint_' + str(2 * J) + str(k)]])
+
             J += 1
 
 
@@ -98,14 +109,20 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
                 aggregated_stress_constraint_negative = max_stress_constraint_space_n + (
                             1 / self.options['rho_KS']) * np.log(
                     A_n)
-
-                outputs['cs_strength'][J, :] = np.asarray([aggregated_stress_constraint_positive, aggregated_stress_constraint_negative])
+                k = 0
+                outputs['c_strength'][2*J+k] = aggregated_stress_constraint_positive
+                k += 1
+                outputs['c_strength'][2*J+k] = aggregated_stress_constraint_negative
                 J += 1
         else:
             J = 0
-            cs = np.zeros((len(self.constraint_bounds), 2))
+            cs = np.zeros((len(self.constraint_bounds)*2))
             for a_constraint_bound in self.constraint_bounds:
-                cs[J, :] = np.squeeze(self.options['total_stress_constraint']['sym_funct_' + str(J)](
+                k = 0
+                cs[2*J+k] = np.squeeze(self.options['total_stress_constraint']['sym_funct_' + str(2 * J) + str(k)](
                     inputs['sigma'][a_constraint_bound[0] * self.options['num_divisions']:a_constraint_bound[1] * self.options['num_divisions'], :]).full())
-                J+=1
-            outputs['cs_strength'] = cs
+                k += 1
+                cs[2 * J + k] = np.squeeze(self.options['total_stress_constraint']['sym_funct_' + str(2 * J) + str(k)](
+                    inputs['sigma'][a_constraint_bound[0] * self.options['num_divisions']:a_constraint_bound[1] * self.options['num_divisions'], :]).full())
+                J += 1
+            outputs['c_strength'] = cs

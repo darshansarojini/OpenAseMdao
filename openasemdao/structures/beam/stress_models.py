@@ -3,7 +3,7 @@ from casadi import *
 
 from openasemdao.structures.utils.utils import CalcNodalT
 from openasemdao.structures.utils.beam_categories import BeamCS
-
+from scipy.sparse import coo_matrix
 
 class EulerBernoulliStressModel(om.ExplicitComponent):
     def initialize(self):
@@ -51,9 +51,12 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                     T x 8n -> 9n : Shear stress at the horizontal beam direction
                     T x 9n -> 10n: Shear stress at the vertical beam direction
             """
-
             self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
             self.add_output('sigma', shape=(10*self.options['num_divisions'], self.options['num_timesteps']+1))
+            self.add_output('d_sigma_axial', shape=(self.options['symbolic_expressions']['d_sigma_axial'].shape[0], self.options['symbolic_expressions']['d_sigma_axial'].shape[1]))
+            self.add_output('d_sigma_vm', shape=(self.options['symbolic_expressions']['d_sigma_vm_w'].shape[0], self.options['symbolic_expressions']['d_sigma_vm_w'].shape[1]))
+            self.add_output('d_tau_max_c', shape=(self.options['symbolic_expressions']['d_tau_max_c'].shape[0], self.options['symbolic_expressions']['d_tau_max_c'].shape[1]))
+            self.add_output('d_tau_max_n', shape=(self.options['symbolic_expressions']['d_tau_max_n'].shape[0], self.options['symbolic_expressions']['d_tau_max_n'].shape[1]))
 
         if self.options['beam_shape'] == BeamCS.BOX:
             self.options['corner_points'] = np.zeros((self.options['symbolic_variables']['corner_points'].shape[0],
@@ -67,9 +70,12 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                 T x 4n -> 8n : axial stress at the corners
                                 T x 8n -> 12n : Shear stress at the flange centers
             """
-
             self.stress_formulae_box(self.options['num_divisions'], self.options['num_timesteps'], cs)
             self.add_output('sigma', shape=(12 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
+            self.add_output('cs_out', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
+            self.add_output('d_sigma_axial', shape=(self.options['symbolic_expressions']['d_sigma_axial'].shape[0], self.options['symbolic_expressions']['d_sigma_axial'].shape[1]))
+            self.add_output('d_sigma_vm', shape=(self.options['symbolic_expressions']['d_sigma_vm'].shape[0], self.options['symbolic_expressions']['d_sigma_vm'].shape[1]))
+            self.add_output('d_tau_side', shape=(self.options['symbolic_expressions']['d_tau_side'].shape[0], self.options['symbolic_expressions']['d_tau_side'].shape[1]))
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         if self.options['debug_flag']:
@@ -93,18 +99,54 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             if np.linalg.norm(h) < np.linalg.norm(w):
                 sigma = self.options['symbolic_stress_functions']['sigma'](inputs['x'],
                                                                              inputs['cs'],
-                                                                             inputs['corner_points'])
+                                                                             inputs['corner_points']).full()
+
+                d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm_w'](inputs['x'],
+                                                                                           inputs['cs'],
+                                                                                           inputs['corner_points']).full()
             else:
                 sigma = self.options['symbolic_stress_functions']['sigma_h'](inputs['x'],
                                                                              inputs['cs'],
                                                                              inputs['corner_points'])
-            outputs['sigma'] = sigma.full()
+                d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm_h'](inputs['x'],
+                                                                                       inputs['cs'],
+                                                                                       inputs['corner_points']).full()
+
+            d_sigma_axial = self.options['symbolic_stress_functions']['d_sigma_axial'](inputs['x'],
+                                                                                       inputs['cs'],
+                                                                                       inputs['corner_points']).full()
+            d_tau_max_c = self.options['symbolic_stress_functions']['d_tau_max_c'](inputs['x'],
+                                                                                 inputs['cs'],
+                                                                                 inputs['corner_points']).full()
+            d_tau_max_n = self.options['symbolic_stress_functions']['d_tau_max_n'](inputs['x'],
+                                                                                 inputs['cs'],
+                                                                                 inputs['corner_points']).full()
+            outputs['d_sigma_vm'] = d_sigma_vm
+            outputs['d_sigma_axial'] = d_sigma_axial
+            outputs['d_tau_max_c'] = d_tau_max_c
+            outputs['d_tau_max_n'] = d_tau_max_n
+
+            outputs['sigma'] = sigma
 
         if self.options['beam_shape'] == BeamCS.BOX:
             sigma = self.options['symbolic_stress_functions']['sigma'](inputs['x'],
                                                                          inputs['cs'],
                                                                          inputs['corner_points'])
-            outputs['sigma'] = sigma.full()
+
+            d_sigma_axial = self.options['symbolic_stress_functions']['d_sigma_axial'](inputs['x'],
+                                                                         inputs['cs'],
+                                                                         inputs['corner_points']).full()
+            d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm'](inputs['x'],
+                                                                                       inputs['cs'],
+                                                                                       inputs['corner_points']).full()
+            d_tau_side = self.options['symbolic_stress_functions']['d_tau_side'](inputs['x'],
+                                                                                       inputs['cs'],
+                                                                                       inputs['corner_points']).full()
+            outputs['d_sigma_axial'] = d_sigma_axial
+            outputs['d_sigma_vm'] = d_sigma_vm
+            outputs['d_tau_side'] = d_tau_side
+
+            outputs['sigma'] = sigma
 
     def stress_formulae_rect(self, n, T, cs):
         """
@@ -303,6 +345,13 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # region Net total stress
         sigma_w = vertcat(sigma_axial, sigma_vm_w, vertcat(tau_max_c, tau_max_n))
         sigma_h = vertcat(sigma_axial, sigma_vm_h, vertcat(tau_max_c, tau_max_n))
+
+        self.options['symbolic_expressions']['d_sigma_axial'] = jacobian(reshape(sigma_axial, (sigma_axial.shape[0] * sigma_axial.shape[1], 1)), cs)
+        self.options['symbolic_expressions']['d_sigma_vm_w'] = jacobian(reshape(sigma_vm_w, (sigma_vm_w.shape[0] * sigma_vm_w.shape[1], 1)), cs)
+        self.options['symbolic_expressions']['d_sigma_vm_h'] = jacobian(reshape(sigma_vm_h, (sigma_vm_h.shape[0] * sigma_vm_h.shape[1], 1)), cs)
+        self.options['symbolic_expressions']['d_tau_max_c'] = jacobian(reshape(tau_max_c, (tau_max_c.shape[0] * tau_max_c.shape[1], 1)), cs)
+        self.options['symbolic_expressions']['d_tau_max_n'] = jacobian(reshape(tau_max_n, (tau_max_n.shape[0] * tau_max_n.shape[1], 1)), cs)
+
         if T == 0:
             pass
         else:
@@ -320,6 +369,31 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                                              symb_stress_points],
                                                                             [self.options['symbolic_expressions'][
                                                                                  'sigma_h']])
+            self.options['symbolic_stress_functions']['d_sigma_axial'] = Function('d_sigma_axial',
+                                                                                  [sol_x,
+                                                                                   cs,
+                                                                                   symb_stress_points],
+                                                                                  [self.options['symbolic_expressions']['d_sigma_axial']])
+            self.options['symbolic_stress_functions']['d_sigma_vm_w'] = Function('d_sigma_vm_w',
+                                                                               [sol_x,
+                                                                                cs,
+                                                                                symb_stress_points],
+                                                                               [self.options['symbolic_expressions']['d_sigma_vm_w']])
+            self.options['symbolic_stress_functions']['d_sigma_vm_h'] = Function('d_sigma_vm_h',
+                                                                               [sol_x,
+                                                                                cs,
+                                                                                symb_stress_points],
+                                                                               [self.options['symbolic_expressions']['d_sigma_vm_h']])
+            self.options['symbolic_stress_functions']['d_tau_max_c'] = Function('d_tau_max_c',
+                                                                               [sol_x,
+                                                                                cs,
+                                                                                symb_stress_points],
+                                                                               [self.options['symbolic_expressions']['d_tau_max_c']])
+            self.options['symbolic_stress_functions']['d_tau_max_n'] = Function('d_tau_max_n',
+                                                                               [sol_x,
+                                                                                cs,
+                                                                                symb_stress_points],
+                                                                               [self.options['symbolic_expressions']['d_tau_max_n']])
         # endregion
 
         return sol_x
@@ -531,7 +605,10 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                             symb_stress_points],
                                                            [self.options['symbolic_expressions']['sigma_vm']])
 
-        sigma = vertcat(sigma_vm, sigma_axial, tau_side)
+            sigma = vertcat(sigma_vm, sigma_axial, tau_side)
+            self.options['symbolic_expressions']['d_sigma_axial'] = jacobian(reshape(sigma_axial, (sigma_axial.shape[0] * sigma_axial.shape[1], 1)), cs)
+            self.options['symbolic_expressions']['d_sigma_vm'] = jacobian(reshape(sigma_vm, (sigma_vm.shape[0] * sigma_vm.shape[1], 1)), cs)
+            self.options['symbolic_expressions']['d_tau_side'] = jacobian(reshape(tau_side, (tau_side.shape[0] * tau_side.shape[1], 1)), cs)
         if T == 0:
             pass
         else:
@@ -541,6 +618,21 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
                                                          cs,
                                                          symb_stress_points],
                                                         [self.options['symbolic_expressions']['sigma']])
+            self.options['symbolic_stress_functions']['d_sigma_axial'] = Function('d_sigma_axial',
+                                                                          [sol_x,
+                                                                           cs,
+                                                                           symb_stress_points],
+                                                                          [self.options['symbolic_expressions']['d_sigma_axial']])
+            self.options['symbolic_stress_functions']['d_sigma_vm'] = Function('d_sigma_vm',
+                                                                          [sol_x,
+                                                                           cs,
+                                                                           symb_stress_points],
+                                                                          [self.options['symbolic_expressions']['d_sigma_vm']])
+            self.options['symbolic_stress_functions']['d_tau_side'] = Function('d_tau_side',
+                                                                          [sol_x,
+                                                                           cs,
+                                                                           symb_stress_points],
+                                                                          [self.options['symbolic_expressions']['d_tau_side']])
         # endregion
 
         return sol_x
