@@ -33,48 +33,47 @@ class BeamInterface(om.ExplicitComponent):
         self.add_input('cs', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
         self.add_output('cs_out', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
         self.add_output('mass', shape=1)
+        self.add_output('corner_points', shape=(self.symbolic_functions['corner_points'].size_out(0)[0], self.symbolic_functions['corner_points'].size_out(0)[1]))
 
         # Symbolic numerical channels:
-        self.add_output('D', shape=(self.options['num_divisions'], 3, 3))
-        self.add_output('oneover', shape=(self.options['num_divisions'], 3, 3))
-        self.add_output('mu', shape=self.options['num_divisions'] - 1)
-        self.add_output('i_matrix', shape=(self.options['num_divisions'] - 1, 3, 3))
-        self.add_output('delta_r_CG_tilde', shape=(self.options['num_divisions'] - 1, 3, 3))
-        self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
-        self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
-        self.add_output('EA', shape=self.options['num_divisions'])
-        self.add_output('corner_points', shape=(self.symbolic_functions['corner_points'].size_out(0)[0], self.symbolic_functions['corner_points'].size_out(0)[1]))
+        if self.options['debug_flag']:
+            self.add_output('D', shape=(self.options['num_divisions'], 3, 3))
+            self.add_output('oneover', shape=(self.options['num_divisions'], 3, 3))
+            self.add_output('mu', shape=self.options['num_divisions'] - 1)
+            self.add_output('i_matrix', shape=(self.options['num_divisions'] - 1, 3, 3))
+            self.add_output('delta_r_CG_tilde', shape=(self.options['num_divisions'] - 1, 3, 3))
+            self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
+            self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
+            self.add_output('EA', shape=self.options['num_divisions'])
+
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
 
         cs_num = inputs['cs']
-
-        outputs['D'] = np.zeros([self.options['num_divisions'], 3, 3])
-        outputs['Einv'] = np.zeros([self.options['num_divisions'], 3, 3])
-        outputs['oneover'] = np.zeros([self.options['num_divisions'], 3, 3])
-        outputs['i_matrix'] = np.zeros([self.options['num_divisions'] - 1, 3, 3])
-        outputs['mu'] = np.zeros(self.options['num_divisions'] - 1)
-
-
         outputs['cs_out'] = cs_num
+        if self.options['debug_flag']:
+            outputs['D'] = np.zeros([self.options['num_divisions'], 3, 3])
+            outputs['Einv'] = np.zeros([self.options['num_divisions'], 3, 3])
+            outputs['oneover'] = np.zeros([self.options['num_divisions'], 3, 3])
+            outputs['i_matrix'] = np.zeros([self.options['num_divisions'] - 1, 3, 3])
+            outputs['mu'] = np.zeros(self.options['num_divisions'] - 1)
+            D_num = self.symbolic_functions['D'](cs_num)
+            Einv_num = self.symbolic_functions['Einv'](cs_num)
+            oneover_num = self.symbolic_functions['oneover'](cs_num)
+            mu_num = self.symbolic_functions['mu'](cs_num)
+            i_matrix_num = self.symbolic_functions['i_matrix'](cs_num)
 
-        D_num = self.symbolic_functions['D'](cs_num)
-        Einv_num = self.symbolic_functions['Einv'](cs_num)
-        oneover_num = self.symbolic_functions['oneover'](cs_num)
-        mu_num = self.symbolic_functions['mu'](cs_num)
-        i_matrix_num = self.symbolic_functions['i_matrix'](cs_num)
-
-        for i in range(self.options['num_divisions']):
-            if i < self.options['num_divisions'] - 1:  # Both nodal and element quantities
-                outputs['D'][i] = D_num[i].full()
-                outputs['Einv'][i] = Einv_num[i].full()
-                outputs['oneover'][i] = oneover_num[i].full()
-                outputs['mu'][i] = mu_num[i].full()
-                outputs['i_matrix'][i] = i_matrix_num[i].full()
-            else:  # Only nodal quantities
-                outputs['D'][i] = D_num[i].full()
-                outputs['Einv'][i] = Einv_num[i].full()
-                outputs['oneover'][i] = oneover_num[i].full()
+            for i in range(self.options['num_divisions']):
+                if i < self.options['num_divisions'] - 1:  # Both nodal and element quantities
+                    outputs['D'][i] = D_num[i].full()
+                    outputs['Einv'][i] = Einv_num[i].full()
+                    outputs['oneover'][i] = oneover_num[i].full()
+                    outputs['mu'][i] = mu_num[i].full()
+                    outputs['i_matrix'][i] = i_matrix_num[i].full()
+                else:  # Only nodal quantities
+                    outputs['D'][i] = D_num[i].full()
+                    outputs['Einv'][i] = Einv_num[i].full()
+                    outputs['oneover'][i] = oneover_num[i].full()
 
         total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
         stress_recovery_points = self.symbolic_functions['corner_points'](cs_num)
@@ -303,7 +302,7 @@ class SymbolicBeam(ABC, om.Group):
                         recorded_load_points.append(
                             load_point)  # To efficiently consider if the point has been created or not
                         initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
-                        self.options['section_characteristics'].insert(i+1, SectionType.FORCE)
+                        self.options['section_characteristics'].insert(i + 1, SectionType.FORCE)
                         if span_percentage > 0.0:  # only duplicate point IF that point did not exist before
                             initial_points = np.insert(initial_points, i + 1, load_point, axis=1)
                             self.options['section_characteristics'].insert(i + 1, SectionType.FORCE)
@@ -392,7 +391,7 @@ class SymbolicBeam(ABC, om.Group):
         for i in range(self.options['delta_s0'].shape[0]):
             ds = self.options['delta_s0'][i]
             if ds == 0:
-                self.options['th0'][:, i] = self.options['th0'][:, i+1]
+                self.options['th0'][:, i] = self.options['th0'][:, i + 1]
         # Initial guess values
         x0 = np.zeros((18, self.options['num_divisions']))
         xDot0 = np.zeros((18, self.options['num_divisions']))
@@ -757,8 +756,8 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         n = self.options['num_divisions']
         T = self.options['num_timesteps']
         # State Variables
-        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T+1)
-        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T+1)
+        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T + 1)
+        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T + 1)
         self.symbolic_expressions['x_slice'] = self.symbolic_expressions['x'][:, 0]
         self.symbolic_expressions['xDot_slice'] = self.symbolic_expressions['xDot'][:, 0]
         return
