@@ -207,11 +207,8 @@ def test_axial_stress_computation():
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
-
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
-    x_0 = np.reshape(x_0, 18 * r0.shape[1])
     x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
@@ -223,7 +220,7 @@ def test_axial_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(x_eval))
 
     prob.run_model()
 
@@ -239,9 +236,8 @@ def test_axial_stress_computation():
     sigma_expected = M[0, :] * y / I_xx
 
     sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma_axial')
-    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
 
-    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1]]
     np.testing.assert_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
@@ -306,11 +302,8 @@ def test_fuse_axial_stress_computation():
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
-
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
-    x_0 = np.reshape(x_0, 18 * r0.shape[1])
     x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
@@ -322,7 +315,7 @@ def test_fuse_axial_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(x_eval))
 
     prob.run_model()
 
@@ -338,9 +331,8 @@ def test_fuse_axial_stress_computation():
     sigma_expected = -M[1, :] * y / I_xx
 
     sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma_axial')
-    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
 
-    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1]]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
@@ -406,11 +398,8 @@ def test_shear_stress_computation():
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
-
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
-    x_0 = np.reshape(x_0, 18 * r0.shape[1])
     x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     h = 0.65 * np.ones((1, n_sections_before_joints_loads))
@@ -420,7 +409,7 @@ def test_shear_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(x_eval))
 
     prob.run_model()
 
@@ -433,9 +422,8 @@ def test_shear_stress_computation():
     # stress will be equal to the 1.5 times of mean shear stress.
 
     sigma_actual = prob.get_val('DoubleSymmetricStressModel.tau_max_n')
-    sigma_actual = np.reshape(sigma_actual, (2, 1 * r0.shape[1])).T
 
-    sigma_actual_tensile = sigma_actual[0 * r0.shape[1]:1 * r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[0 * r0.shape[1]:1 * r0.shape[1]]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
@@ -501,11 +489,8 @@ def test_torsional_stress_computation():
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
-
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
-    x_0 = np.reshape(x_0, 18 * r0.shape[1])
     x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     h = 0.5 * np.ones(n_sections_before_joints_loads)
@@ -515,7 +500,7 @@ def test_torsional_stress_computation():
 
     prob.set_val('RectBeam.DoubleSymmetricBeamInterface.cs', cs)
 
-    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('DoubleSymmetricStressModel.x', np.transpose(x_eval))
 
     prob.run_model()
 
@@ -533,9 +518,7 @@ def test_torsional_stress_computation():
 
     sigma_actual = prob.get_val('DoubleSymmetricStressModel.sigma_vm')
 
-    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
-
-    sigma_actual_torsion = sigma_actual[0 * r0.shape[1]:1 * r0.shape[1], 1]
+    sigma_actual_torsion = sigma_actual[0 * r0.shape[1]:1 * r0.shape[1]]
     np.testing.assert_almost_equal(np.squeeze(tau_torsion), sigma_actual_torsion)
     pass
 
@@ -599,11 +582,8 @@ def test_box_axial_stress_computation():
     u = np.zeros((3, r0.shape[1]))
     omega = np.zeros((3, r0.shape[1]))
 
-    x_0 = np.transpose(np.vstack((r0, th0, 0 * F, 0 * M, u, omega)))
-
     x_eval = np.transpose(np.vstack((r0, th0, F, M, u, omega)))
 
-    x_0 = np.reshape(x_0, 18 * r0.shape[1])
     x_eval = np.reshape(x_eval, 18 * r0.shape[1])
 
     # Keeping in mind that the number of sections and design variables is not the same
@@ -621,7 +601,7 @@ def test_box_axial_stress_computation():
 
     prob.set_val('RectBeam.BoxBeamInterface.cs', cs)
 
-    prob.set_val('BoxBeamStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('BoxBeamStressModel.x', np.transpose(x_eval))
 
     prob.run_model()
 
@@ -644,9 +624,7 @@ def test_box_axial_stress_computation():
 
     sigma_actual = prob.get_val('BoxBeamStressModel.sigma_axial')
 
-    sigma_actual = np.reshape(sigma_actual, (2, 4 * r0.shape[1])).T
-
-    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
+    sigma_actual_tensile = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1]]
     np.testing.assert_almost_equal(np.squeeze(sigma_expected), sigma_actual_tensile)
     pass
 
@@ -734,7 +712,7 @@ def test_box_torsion_computation():
 
     prob.set_val('RectBeam.BoxBeamInterface.cs', cs)
 
-    prob.set_val('BoxBeamStressModel.x', np.transpose(np.vstack((x_0, x_eval))))
+    prob.set_val('BoxBeamStressModel.x', np.transpose(x_eval))
 
     prob.run_model()
 
@@ -757,10 +735,8 @@ def test_box_torsion_computation():
 
     sigma_actual = prob.get_val('BoxBeamStressModel.tau_side')
 
-    sigma_actual = np.reshape(sigma_actual, (2, 4*r0.shape[1])).T
-
-    tau_top = sigma_actual[1 * r0.shape[1]:2 * r0.shape[1], 1]
-    tau_right = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1], 1]
+    tau_top = sigma_actual[1 * r0.shape[1]:2 * r0.shape[1]]
+    tau_right = sigma_actual[2 * r0.shape[1]:3 * r0.shape[1]]
     np.testing.assert_almost_equal(np.squeeze(tau_right_theoretical), tau_right)
     np.testing.assert_almost_equal(np.squeeze(tau_top_theoretical), tau_top)
     pass
@@ -850,9 +826,9 @@ def test_lean_rect_beam_computation():
     x_fuselage = prob.get_val('Tstickmodel.x')
 
     # Sort data:
-    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0] / 18), 18)).T
+    x_fuselage_start = np.reshape(T_stickmodel.numeric_storage['x0'], (int(x_fuselage.shape[0] / 18), 18)).T
 
-    x_fuselage_start = np.reshape(np.squeeze(x_fuselage[:, 0]), (int(x_fuselage.shape[0] / 18), 18)).T
+    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 0]), (int(x_fuselage.shape[0] / 18), 18)).T
 
     dx = x_fuselage_end - x_fuselage_start
 
@@ -878,7 +854,7 @@ def test_rect_lean_beam_dynamic_computation():
     model = om.Group()
 
     t_initial = 0.0
-    t_final = 1.0
+    t_final = 1.0+1e-2
     time_step = 1e-2
 
     num_timesteps = int((t_final - t_initial) / time_step)
@@ -1159,13 +1135,13 @@ def test_t_beam_lean_computation():
     x_lht = prob.get_val('outputStickmodel.x_2')
 
     # Sort data:
-    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 1]), (int(x_fuselage.shape[0] / 18), 18)).T
-    x_rht_end = np.reshape(np.squeeze(x_rht[:, 1]), (int(x_rht.shape[0] / 18), 18)).T
-    x_lht_end = np.reshape(np.squeeze(x_lht[:, 1]), (int(x_lht.shape[0] / 18), 18)).T
+    x_fuselage_end = np.reshape(np.squeeze(x_fuselage[:, 0]), (int(x_fuselage.shape[0] / 18), 18)).T
+    x_rht_end = np.reshape(np.squeeze(x_rht[:, 0]), (int(x_rht.shape[0] / 18), 18)).T
+    x_lht_end = np.reshape(np.squeeze(x_lht[:, 0]), (int(x_lht.shape[0] / 18), 18)).T
 
-    x_fuselage_start = np.reshape(np.squeeze(x_fuselage[:, 0]), (int(x_fuselage.shape[0] / 18), 18)).T
-    x_rht_start = np.reshape(np.squeeze(x_rht[:, 0]), (int(x_rht.shape[0] / 18), 18)).T
-    x_lht_start = np.reshape(np.squeeze(x_lht[:, 0]), (int(x_lht.shape[0] / 18), 18)).T
+    x_fuselage_start = np.reshape(fuselage.options['x0'], (int(fuselage.options['x0'].shape[0] / 18), 18)).T
+    x_rht_start = np.reshape(RHS_tail.options['x0'], (int(RHS_tail.options['x0'].shape[0] / 18), 18)).T
+    x_lht_start = np.reshape(LHS_tail.options['x0'], (int(LHS_tail.options['x0'].shape[0] / 18), 18)).T
 
     # Plotting initial state:
 

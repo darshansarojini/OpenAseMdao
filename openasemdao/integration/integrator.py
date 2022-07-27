@@ -9,19 +9,16 @@ class Integrator:
             newton_iteration_counter = 0
             newton_iteration_convergence_flag = True
 
-            outputs['x'][:, 0] = model.numeric_storage['x0']
-            outputs['x'][:, 1] = model.numeric_storage['x0']
-            inputs['xDot'][:, 0] = np.zeros(model.numeric_storage['x0'].shape[0])
-            inputs['xDot'][:, 1] = np.zeros(model.numeric_storage['x0'].shape[0])
+            outputs['x'] = model.numeric_storage['x0']
 
             while newton_iteration_convergence_flag:
                 k_start = k_start + 1
                 if k_start > k_lim:
                     print('Newton iteration limit reached')
                     break
-                Fty = model.symbolic_functions['Residuals'](outputs['x'][:, 1], inputs['xDot'][:, 1], inputs['Xac'], inputs['forces_dist'],
+                Fty = model.symbolic_functions['Residuals'](outputs['x'], np.zeros((model.numeric_storage['x0'].shape[0], 1)), inputs['Xac'], inputs['forces_dist'],
                                                             inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
-                Jac = model.symbolic_functions['Jacobian'](outputs['x'][:, 1], inputs['xDot'][:, 1], inputs['Xac'], inputs['forces_dist'],
+                Jac = model.symbolic_functions['Jacobian'](outputs['x'], np.zeros((model.numeric_storage['x0'].shape[0], 1)), inputs['Xac'], inputs['forces_dist'],
                                                            inputs['moments_dist'], inputs['forces_conc'], inputs['moments_conc'], inputs['cs'])
 
                 dRdX = Jac[0:model.symbolic_expressions['Residual'].shape[0], 0:model.symbolic_expressions['Residual'].shape[0]]
@@ -38,13 +35,13 @@ class Integrator:
                     break  # we are done
                 else:
                     # new guess
-                    outputs['x'][:, 1] = outputs['x'][:, 1] + np.squeeze(delta_x_vec)
+                    outputs['x'] = outputs['x'] + delta_x_vec
                 newton_iteration_counter = newton_iteration_counter + 1
         else:
             outputs['x'][:, 0] = model.numeric_storage['x0']
             model.numeric_storage['xDot'][:, 0] = np.zeros(model.numeric_storage['x0'].shape[0])
             # Run External Loop:
-            for iteration in range(1, model.numeric_storage['max_step'] + 1):
+            for iteration in range(1, model.numeric_storage['max_step']):
                 # print('==================================================================')
                 # print(iteration)
                 model.numeric_storage['current_step'] = iteration

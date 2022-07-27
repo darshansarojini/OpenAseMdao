@@ -37,7 +37,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
     def setup(self):
         # Setup all the nice goodies that make this thing work
         self.add_input('cs', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
-        self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps'] + 1))
+        self.add_input('x', shape=(18 * self.options['num_divisions'], self.options['num_timesteps']))
         # Time to generate the stress formulas:
         cs = self.options['symbolic_variables']['cs']
         if self.options['beam_shape'] == BeamCS.RECTANGULAR:  # Rectangular beam with 2 degrees of freedom per cross-section h w
@@ -53,10 +53,10 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             """
             self.stress_formulae_rect(self.options['num_divisions'], self.options['num_timesteps'], cs)
 
-            self.add_output('sigma_axial', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
-            self.add_output('sigma_vm', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
-            self.add_output('tau_max_c', shape=(self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
-            self.add_output('tau_max_n', shape=(self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
+            self.add_output('sigma_axial', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'])))
+            self.add_output('sigma_vm', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'])))
+            self.add_output('tau_max_c', shape=(self.options['num_divisions'] * (self.options['num_timesteps'])))
+            self.add_output('tau_max_n', shape=(self.options['num_divisions'] * (self.options['num_timesteps'])))
 
             self.declare_partials('sigma_axial', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_axial'].shape[0], self.options['symbolic_expressions']['d_sigma_axial'].shape[1]))))
             self.declare_partials('sigma_vm', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_vm_w'].shape[0], self.options['symbolic_expressions']['d_sigma_vm_w'].shape[1]))))
@@ -77,9 +77,9 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             """
             self.stress_formulae_box(self.options['num_divisions'], self.options['num_timesteps'], cs)
 
-            self.add_output('sigma_axial', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
-            self.add_output('sigma_vm', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
-            self.add_output('tau_side', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
+            self.add_output('sigma_axial', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'])))
+            self.add_output('sigma_vm', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'])))
+            self.add_output('tau_side', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'])))
 
             self.declare_partials('sigma_axial', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_axial'].shape[0], self.options['symbolic_expressions']['d_sigma_axial'].shape[1]))))
             self.declare_partials('sigma_vm', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_vm'].shape[0], self.options['symbolic_expressions']['d_sigma_vm'].shape[1]))))
@@ -182,22 +182,22 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         h = self.options['symbolic_variables']['h']
         w = self.options['symbolic_variables']['w']
 
-        sol_x = SX.sym('x_sol', 18 * self.options['num_divisions'], T + 1)
+        sol_x = SX.sym('x_sol', 18 * self.options['num_divisions'], T)
 
         # region Internal Forces and Moments
-        Mc = SX.zeros(n, T + 1)
-        Ms = SX.zeros(n, T + 1)
-        Mn = SX.zeros(n, T + 1)
-        Fc = SX.zeros(n, T + 1)
-        Fs = SX.zeros(n, T + 1)
-        Fn = SX.zeros(n, T + 1)
+        Mc = SX.zeros(n, T)
+        Ms = SX.zeros(n, T)
+        Mn = SX.zeros(n, T)
+        Fc = SX.zeros(n, T)
+        Fs = SX.zeros(n, T)
+        Fn = SX.zeros(n, T)
 
         T0, T0a = CalcNodalT(th=self.options['th0'], seq=self.options['seq'], n=n)
         for i in range(n):
             x_node_at_all_timesteps = sol_x[i * 18: (i + 1) * 18, :]
-            M_csn = SX.zeros(3, T + 1)
-            F_csn = SX.zeros(3, T + 1)
-            for j in range(T + 1):
+            M_csn = SX.zeros(3, T)
+            F_csn = SX.zeros(3, T)
+            for j in range(T):
                 M_csn[:, j] = mtimes(T0[i], x_node_at_all_timesteps[9:12, j])
                 F_csn[:, j] = mtimes(T0[i], x_node_at_all_timesteps[6:9, j])
             Mc[i, :] = M_csn[0, :]
@@ -276,7 +276,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         #   n+1:2n is 2nd point (top-right)
         #   2n+1:3n is 3rd point (bottom-right)
         #   3n+1:4n is 4th point (bottom-left)
-        sigma_axial = SX.sym('sigma_a', number_of_stress_points * n, T + 1)
+        sigma_axial = SX.sym('sigma_a', number_of_stress_points * n, T)
         for j in range(number_of_stress_points):
             for i in range(n):
                 x1 = symb_stress_points[2 * j, i]
@@ -446,22 +446,22 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         t_right = self.options['symbolic_variables']['t_right']
         t_bot = self.options['symbolic_variables']['t_bot']
 
-        sol_x = SX.sym('x_sol', self.options['symbolic_variables']['x'].shape[0], T + 1)
+        sol_x = SX.sym('x_sol', self.options['symbolic_variables']['x'].shape[0], T)
 
         # region Internal Forces and Moments
-        Mc = SX.zeros(n, T + 1)
-        Ms = SX.zeros(n, T + 1)
-        Mn = SX.zeros(n, T + 1)
-        Fc = SX.zeros(n, T + 1)
-        Fs = SX.zeros(n, T + 1)
-        Fn = SX.zeros(n, T + 1)
+        Mc = SX.zeros(n, T)
+        Ms = SX.zeros(n, T)
+        Mn = SX.zeros(n, T)
+        Fc = SX.zeros(n, T)
+        Fs = SX.zeros(n, T)
+        Fn = SX.zeros(n, T)
 
         T0, T0a = CalcNodalT(th=self.options['th0'], seq=self.options['seq'], n=n)
         for i in range(n):
             x_node_at_all_timesteps = sol_x[i * 18: (i + 1) * 18, :]
-            M_csn = SX.zeros(3, T + 1)
-            F_csn = SX.zeros(3, T + 1)
-            for j in range(T + 1):
+            M_csn = SX.zeros(3, T)
+            F_csn = SX.zeros(3, T)
+            for j in range(T):
                 M_csn[:, j] = mtimes(T0[i], x_node_at_all_timesteps[9:12, j])
                 F_csn[:, j] = mtimes(T0[i], x_node_at_all_timesteps[6:9, j])
             Mc[i, :] = M_csn[0, :]
@@ -484,7 +484,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
 
         sign = np.array([-1, 1, 1, -1])
 
-        tau_torsion = SX.sym('tau_torsion', number_of_stress_points * n, T + 1)
+        tau_torsion = SX.sym('tau_torsion', number_of_stress_points * n, T)
 
         for j in range(cs_ordered.shape[0]):
             for i in range(n):
@@ -515,8 +515,8 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         sign_ud = np.array([0, 1, 0, 1])
         sign_t = np.array([-1, 1, 1, -1])
 
-        tau_side = SX.sym('tau_side', number_of_stress_points * n, T + 1)
-        tau_shear = SX.sym('tau_shear', number_of_stress_points * n, T + 1)
+        tau_side = SX.sym('tau_side', number_of_stress_points * n, T)
+        tau_shear = SX.sym('tau_shear', number_of_stress_points * n, T)
 
         for j in range(cs_ordered.shape[0]):
             for i in range(n):
@@ -555,7 +555,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         #   n+1:2n is 2nd point (top-right)
         #   2n+1:3n is 3rd point (bottom-right)
         #   3n+1:4n is 4th point (bottom-left)
-        sigma_axial = SX.sym('sigma_a', number_of_stress_points * n, T + 1)
+        sigma_axial = SX.sym('sigma_a', number_of_stress_points * n, T)
         for j in range(number_of_stress_points):
             for i in range(n):
                 x1 = symb_stress_points[2 * j, i]
@@ -584,7 +584,7 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
         # endregion
 
         # region von-Mises Stress
-        sigma = SX.sym('sigma', number_of_stress_points * n, T + 1)
+        sigma = SX.sym('sigma', number_of_stress_points * n, T)
         for j in range(number_of_stress_points):
             for i in range(n):
                 sign_1 = 1

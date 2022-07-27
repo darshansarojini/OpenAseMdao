@@ -684,7 +684,7 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
 
         # Generate state and force numerical connections:
 
-        self.add_input('xDot', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']+1))
+        self.add_input('xDot', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']))
         self.add_input('Xac', shape=18)
         self.add_input('forces_dist', shape=3 * self.beam_reference['forces_conc'].shape[1])
         self.add_input('moments_dist', shape=3 * self.beam_reference['forces_conc'].shape[1])
@@ -694,7 +694,7 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
         self.add_input('cs', shape=self.beam_reference['cs'].shape[0])
 
         # Add the outputs from this stickmodel class (just a single beam)
-        self.add_output('x', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']+1))
+        self.add_output('x', shape=(self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']))
 
         # Initialize numerical integration variables:
         if len(self.options['joint_reference']) > 0:
@@ -711,9 +711,9 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
             self.numeric_storage['moments_conc'] = np.zeros(3 * self.beam_reference['moments_conc'].shape[1])
 
             self.numeric_storage['max_step'] = self.options['num_timesteps']        # Arrays in Python are zero-based
-            self.numeric_storage['time'] = np.zeros(self.options['num_timesteps'] + 1)  # Initially all are zeros
+            self.numeric_storage['time'] = np.zeros(self.options['num_timesteps'])  # Initially all are zeros
             self.numeric_storage['current_step'] = 1
-            self.numeric_storage['xDot'] = np.zeros((self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps'] + 1))
+            self.numeric_storage['xDot'] = np.zeros((self.symbolic_expressions['Residual'].shape[0], self.options['num_timesteps']))
             self.numeric_storage['xDot_local'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
             self.numeric_storage['x_local'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
             self.numeric_storage['x_minus_1'] = np.zeros(self.symbolic_expressions['Residual'].shape[0])
@@ -857,8 +857,8 @@ class BeamStickModel(SymbolicStickModel, om.ImplicitComponent):
                     beam_number += 1
 
                 # Add new columns for the symbolic state vectors
-                self.beam_reference['x'] = vertcat(self.beam_reference['x'], SX.sym(a_joint.joint_label + 'state', 12, beams[0].options['num_timesteps'] + 1))
-                self.beam_reference['xDot'] = vertcat(self.beam_reference['xDot'], SX.sym(a_joint.joint_label + 'stateD', 12, beams[0].options['num_timesteps'] + 1))
+                self.beam_reference['x'] = vertcat(self.beam_reference['x'], SX.sym(a_joint.joint_label + 'state', 12, beams[0].options['num_timesteps']))
+                self.beam_reference['xDot'] = vertcat(self.beam_reference['xDot'], SX.sym(a_joint.joint_label + 'stateD', 12, beams[0].options['num_timesteps']))
                 self.beam_reference['x_slice'] = vertcat(self.beam_reference['x_slice'], SX.sym(a_joint.joint_label + 'state_s', 12, 1))
                 self.beam_reference['xDot_slice'] = vertcat(self.beam_reference['xDot_slice'], SX.sym(a_joint.joint_label + 'state_s_D', 12, 1))
 

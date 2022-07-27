@@ -756,8 +756,8 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         n = self.options['num_divisions']
         T = self.options['num_timesteps']
         # State Variables
-        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T + 1)
-        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T + 1)
+        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T)
+        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T)
         self.symbolic_expressions['x_slice'] = self.symbolic_expressions['x'][:, 0]
         self.symbolic_expressions['xDot_slice'] = self.symbolic_expressions['xDot'][:, 0]
         return
@@ -1132,8 +1132,8 @@ class BoxBeamRepresentation(SymbolicBeam):
         n = self.options['num_divisions']
         T = self.options['num_timesteps']
         # State Variables
-        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T + 1)
-        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T + 1)
+        self.symbolic_expressions['x'] = SX.sym(self.options['name'] + 'x', 18 * n, T)
+        self.symbolic_expressions['xDot'] = SX.sym(self.options['name'] + 'xDot', 18 * n, T)
         self.symbolic_expressions['x_slice'] = self.symbolic_expressions['x'][:, 0]
         self.symbolic_expressions['xDot_slice'] = self.symbolic_expressions['xDot'][:, 0]
         return
