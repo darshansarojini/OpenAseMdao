@@ -1,7 +1,7 @@
 import openmdao.api as om
 from casadi import *
 from openasemdao.structures.utils.beam_categories import BeamCS
-
+from scipy.sparse import csc_matrix
 
 class StrengthAggregatedConstraint(om.ExplicitComponent):
     def initialize(self):
@@ -151,13 +151,13 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
                                                                                 [self.symbolic_expressions['d_c_tau_max_n_n']])
             self.add_output('c_tau_max_n_n')
 
-            self.declare_partials('c_axial', 'sigma_axial')
-            self.declare_partials('c_axial_n', 'sigma_axial')
-            self.declare_partials('c_vm', 'sigma_vm')
-            self.declare_partials('c_tau_max_c', 'tau_max_c')
-            self.declare_partials('c_tau_max_c_n', 'tau_max_c')
-            self.declare_partials('c_tau_max_n', 'tau_max_n')
-            self.declare_partials('c_tau_max_n_n', 'tau_max_n')
+            self.declare_partials('c_axial', 'sigma_axial', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_axial'].shape[0],self.symbolic_expressions['d_c_axial'].shape[1]))))
+            self.declare_partials('c_axial_n', 'sigma_axial', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_axial_n'].shape[0],self.symbolic_expressions['d_c_axial_n'].shape[1]))))
+            self.declare_partials('c_vm', 'sigma_vm', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_vm'].shape[0],self.symbolic_expressions['d_c_vm'].shape[1]))))
+            self.declare_partials('c_tau_max_c', 'tau_max_c', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_tau_max_c'].shape[0],self.symbolic_expressions['d_c_tau_max_c'].shape[1]))))
+            self.declare_partials('c_tau_max_c_n', 'tau_max_c', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_tau_max_c_n'].shape[0],self.symbolic_expressions['d_c_tau_max_c_n'].shape[1]))))
+            self.declare_partials('c_tau_max_n', 'tau_max_n', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_tau_max_n'].shape[0],self.symbolic_expressions['d_c_tau_max_n'].shape[1]))))
+            self.declare_partials('c_tau_max_n_n', 'tau_max_n', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_tau_max_n_n'].shape[0],self.symbolic_expressions['d_c_tau_max_n_n'].shape[1]))))
 
         elif self.options['beam_shape'] == BeamCS.BOX:
             self.add_input('sigma_axial', shape=(self.stress_input.options['symbolic_stress_functions']['sigma_axial'].size_out(0)[0]))
@@ -244,11 +244,11 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
 
             self.add_output('c_tau_side_n')
 
-            self.declare_partials('c_axial', 'sigma_axial')
-            self.declare_partials('c_axial_n', 'sigma_axial')
-            self.declare_partials('c_vm', 'sigma_vm')
-            self.declare_partials('c_tau_side', 'tau_side')
-            self.declare_partials('c_tau_side_n', 'tau_side')
+            self.declare_partials('c_axial', 'sigma_axial', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_axial'].shape[0], self.symbolic_expressions['d_c_axial'].shape[1]))))
+            self.declare_partials('c_axial_n', 'sigma_axial', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_axial_n'].shape[0], self.symbolic_expressions['d_c_axial_n'].shape[1]))))
+            self.declare_partials('c_vm', 'sigma_vm', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_vm'].shape[0], self.symbolic_expressions['d_c_vm'].shape[1]))))
+            self.declare_partials('c_tau_side', 'tau_side', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_tau_side'].shape[0], self.symbolic_expressions['d_c_tau_side'].shape[1]))))
+            self.declare_partials('c_tau_side_n', 'tau_side', val=csc_matrix(np.zeros((self.symbolic_expressions['d_c_tau_side_n'].shape[0], self.symbolic_expressions['d_c_tau_side_n'].shape[1]))))
         else:
             raise NotImplementedError("Will add more stress models shortly")
 
@@ -351,13 +351,13 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
 
     def compute_partials(self, inputs, partials, discrete_inputs=None):
         if self.options['beam_shape'] == BeamCS.RECTANGULAR:
-            d_c_axial = self.options['total_stress_constraint']['d_c_axial'](inputs['sigma_axial']).full()
-            d_c_axial_n = self.options['total_stress_constraint']['d_c_axial_n'](inputs['sigma_axial']).full()
-            d_c_vm = self.options['total_stress_constraint']['d_c_vm'](inputs['sigma_vm']).full()
-            d_c_tau_max_c = self.options['total_stress_constraint']['d_c_tau_max_c'](inputs['tau_max_c']).full()
-            d_c_tau_max_c_n = self.options['total_stress_constraint']['d_c_tau_max_c_n'](inputs['tau_max_c']).full()
-            d_c_tau_max_n = self.options['total_stress_constraint']['d_c_tau_max_n'](inputs['tau_max_n']).full()
-            d_c_tau_max_n_n = self.options['total_stress_constraint']['d_c_tau_max_n_n'](inputs['tau_max_n']).full()
+            d_c_axial = self.options['total_stress_constraint']['d_c_axial'](inputs['sigma_axial']).sparse()
+            d_c_axial_n = self.options['total_stress_constraint']['d_c_axial_n'](inputs['sigma_axial']).sparse()
+            d_c_vm = self.options['total_stress_constraint']['d_c_vm'](inputs['sigma_vm']).sparse()
+            d_c_tau_max_c = self.options['total_stress_constraint']['d_c_tau_max_c'](inputs['tau_max_c']).sparse()
+            d_c_tau_max_c_n = self.options['total_stress_constraint']['d_c_tau_max_c_n'](inputs['tau_max_c']).sparse()
+            d_c_tau_max_n = self.options['total_stress_constraint']['d_c_tau_max_n'](inputs['tau_max_n']).sparse()
+            d_c_tau_max_n_n = self.options['total_stress_constraint']['d_c_tau_max_n_n'](inputs['tau_max_n']).sparse()
 
             partials['c_axial', 'sigma_axial'] = d_c_axial
             partials['c_axial_n', 'sigma_axial'] = d_c_axial_n
@@ -368,11 +368,11 @@ class StrengthAggregatedConstraint(om.ExplicitComponent):
             partials['c_tau_max_n_n', 'tau_max_n'] = d_c_tau_max_n_n
 
         elif self.options['beam_shape'] == BeamCS.BOX:
-            d_c_axial = self.options['total_stress_constraint']['d_c_axial'](inputs['sigma_axial']).full()
-            d_c_axial_n = self.options['total_stress_constraint']['d_c_axial_n'](inputs['sigma_axial']).full()
-            d_c_vm = self.options['total_stress_constraint']['d_c_vm'](inputs['sigma_vm']).full()
-            d_c_tau_side = self.options['total_stress_constraint']['d_c_tau_side'](inputs['tau_side']).full()
-            d_c_tau_side_n = self.options['total_stress_constraint']['d_c_tau_side_n'](inputs['tau_side']).full()
+            d_c_axial = self.options['total_stress_constraint']['d_c_axial'](inputs['sigma_axial']).sparse()
+            d_c_axial_n = self.options['total_stress_constraint']['d_c_axial_n'](inputs['sigma_axial']).sparse()
+            d_c_vm = self.options['total_stress_constraint']['d_c_vm'](inputs['sigma_vm']).sparse()
+            d_c_tau_side = self.options['total_stress_constraint']['d_c_tau_side'](inputs['tau_side']).sparse()
+            d_c_tau_side_n = self.options['total_stress_constraint']['d_c_tau_side_n'](inputs['tau_side']).sparse()
 
             partials['c_axial', 'sigma_axial'] = d_c_axial
             partials['c_axial_n', 'sigma_axial'] = d_c_axial_n

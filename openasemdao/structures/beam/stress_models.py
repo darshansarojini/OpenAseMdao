@@ -3,7 +3,7 @@ from casadi import *
 
 from openasemdao.structures.utils.utils import CalcNodalT
 from openasemdao.structures.utils.beam_categories import BeamCS
-from scipy.sparse import coo_matrix
+from scipy.sparse import csc_matrix
 
 
 class EulerBernoulliStressModel(om.ExplicitComponent):
@@ -58,10 +58,10 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             self.add_output('tau_max_c', shape=(self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
             self.add_output('tau_max_n', shape=(self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
 
-            self.declare_partials('sigma_axial', 'cs')
-            self.declare_partials('sigma_vm', 'cs')
-            self.declare_partials('tau_max_c', 'cs')
-            self.declare_partials('tau_max_n', 'cs')
+            self.declare_partials('sigma_axial', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_axial'].shape[0], self.options['symbolic_expressions']['d_sigma_axial'].shape[1]))))
+            self.declare_partials('sigma_vm', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_vm_w'].shape[0], self.options['symbolic_expressions']['d_sigma_vm_w'].shape[1]))))
+            self.declare_partials('tau_max_c', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_tau_max_c'].shape[0], self.options['symbolic_expressions']['d_tau_max_c'].shape[1]))))
+            self.declare_partials('tau_max_n', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_tau_max_n'].shape[0], self.options['symbolic_expressions']['d_tau_max_n'].shape[1]))))
 
         if self.options['beam_shape'] == BeamCS.BOX:
             self.options['corner_points'] = np.zeros((self.options['symbolic_variables']['corner_points'].shape[0],
@@ -81,9 +81,9 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             self.add_output('sigma_vm', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
             self.add_output('tau_side', shape=(4 * self.options['num_divisions'] * (self.options['num_timesteps'] + 1)))
 
-            self.declare_partials('sigma_axial', 'cs')
-            self.declare_partials('sigma_vm', 'cs')
-            self.declare_partials('tau_side', 'cs')
+            self.declare_partials('sigma_axial', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_axial'].shape[0], self.options['symbolic_expressions']['d_sigma_axial'].shape[1]))))
+            self.declare_partials('sigma_vm', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_sigma_vm'].shape[0], self.options['symbolic_expressions']['d_sigma_vm'].shape[1]))))
+            self.declare_partials('tau_side', 'cs', val=csc_matrix(np.zeros((self.options['symbolic_expressions']['d_tau_side'].shape[0], self.options['symbolic_expressions']['d_tau_side'].shape[1]))))
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         if self.options['debug_flag']:
@@ -133,13 +133,13 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             w = inputs['cs'][self.options['num_DvCs']:2 * self.options['num_DvCs']]
 
             if np.linalg.norm(h) < np.linalg.norm(w):
-                d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm_w'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
+                d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm_w'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
             else:
-                d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm_h'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
+                d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm_h'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
 
-            d_sigma_axial = self.options['symbolic_stress_functions']['d_sigma_axial'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
-            d_tau_max_c = self.options['symbolic_stress_functions']['d_tau_max_c'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
-            d_tau_max_n = self.options['symbolic_stress_functions']['d_tau_max_n'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
+            d_sigma_axial = self.options['symbolic_stress_functions']['d_sigma_axial'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
+            d_tau_max_c = self.options['symbolic_stress_functions']['d_tau_max_c'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
+            d_tau_max_n = self.options['symbolic_stress_functions']['d_tau_max_n'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
 
             partials['sigma_axial', 'cs'] = d_sigma_axial
             partials['sigma_vm', 'cs'] = d_sigma_vm
@@ -147,9 +147,9 @@ class EulerBernoulliStressModel(om.ExplicitComponent):
             partials['tau_max_n', 'cs'] = d_tau_max_n
 
         elif self.options['beam_shape'] == BeamCS.BOX:
-            d_sigma_axial = self.options['symbolic_stress_functions']['d_sigma_axial'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
-            d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
-            d_tau_side = self.options['symbolic_stress_functions']['d_tau_side'](inputs['x'], inputs['cs'], inputs['corner_points']).full()
+            d_sigma_axial = self.options['symbolic_stress_functions']['d_sigma_axial'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
+            d_sigma_vm = self.options['symbolic_stress_functions']['d_sigma_vm'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
+            d_tau_side = self.options['symbolic_stress_functions']['d_tau_side'](inputs['x'], inputs['cs'], inputs['corner_points']).sparse()
 
             partials['sigma_axial', 'cs'] = d_sigma_axial
             partials['sigma_vm', 'cs'] = d_sigma_vm

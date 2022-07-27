@@ -843,6 +843,7 @@ def test_lean_rect_beam_computation():
     prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
 
     # Solve Model
+
     prob.run_model()
 
     # Gather data:
@@ -944,6 +945,7 @@ def test_rect_lean_beam_dynamic_computation():
 
     prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', cs_in)
 
+
     prob.set_val('Tstickmodel.Xac', np.zeros(18))
     prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
     prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
@@ -952,6 +954,7 @@ def test_rect_lean_beam_dynamic_computation():
 
     # Solve Model
     prob.run_model()
+    # prob.check_partials(method='cs', compact_print=True, form='central')
 
     # Gather data:
     x_fuselage = prob.get_val('Tstickmodel.x')
