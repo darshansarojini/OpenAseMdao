@@ -2,8 +2,8 @@ from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentati
 from openasemdao.structures.inputs.inputs import BeamDefinition, PointLoadDefinition, JointDefinition
 from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
-from openasemdao.structures.beam.constraints import StrengthAggregatedConstraint
-from openasemdao.structures.beam.stress_models import EulerBernoulliStressModel
+from openasemdao.structures.beam.constraints import StrengthAggregatedConstraint, SpecificStrengthAggregatedConstraint
+from openasemdao.structures.beam.stress_models import EulerBernoulliStressModel,  BasicEulerBernoulliStressModel
 from openasemdao.structures.beam.stickmodel import BeamStickModel, StickModelFeeder, StickModelDemultiplexer
 from openasemdao import Q_
 import numpy as np
@@ -847,6 +847,124 @@ def test_lean_rect_beam_computation():
     np.testing.assert_almost_equal(theoretical_deflection, endpoint_deflection, decimal=3)
 
 
+def test_lean_rect_beam_optimization():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 15
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+
+    L = 20
+
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    Load = 1e6 # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    joints = []
+
+    # Some constraint
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse", debug_flag=False)
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+
+    fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+
+    # # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint) or isinstance(a_constraint, SpecificStrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
+
+    # Setting up connections:
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'FuselageDoubleSymmetricBeamStressModel.x')
+
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
+
+    lb = 0.15
+    ub = 2.0
+
+    # model.nonlinear_solver = om.NewtonSolver()
+    # model.linear_solver = om.DirectSolver()
+    # model.nonlinear_solver.options['iprint'] = 2
+    # model.nonlinear_solver.options['maxiter'] = 12
+    # model.nonlinear_solver.options['solve_subsystems'] = False
+    model.options['assembled_jac_type'] = 'csc'
+
+    model.add_design_var('Fuselage.DoubleSymmetricBeamInterface.cs', lower=lb, upper=ub)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_axial', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_axial_n', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_tau_max_c', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_tau_max_c_n', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_tau_max_n', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_tau_max_n_n', upper=0.0)
+
+    model.add_objective('Fuselage.DoubleSymmetricBeamInterface.mass', scaler=1/1300000)
+    # 1300000 axial 900000 vm
+    prob = om.Problem(model)
+
+    prob.driver = om.ScipyOptimizeDriver()
+    prob.driver.options['optimizer'] = 'SLSQP'
+    prob.driver.options['tol'] = 3e-6
+    prob.driver.options['disp'] = True
+    prob.driver.options['maxiter'] = 500
+
+    prob.setup()
+
+    om.n2(prob)
+
+    # Input design variables
+    h = 0.5
+    w = 0.5
+    cs_in = np.hstack(
+        (h * np.ones((int(fuselage.options['beam_shape'].value/2) * fuselage.options['num_DvCs'])), w * np.ones((int(fuselage.options['beam_shape'].value/2) * fuselage.options['num_DvCs']))))
+
+    prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', cs_in)
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+
+    # Solve Model
+    # prob.run_model()
+
+    # prob.check_partials(method='cs', compact_print=True, form='central')
+    #
+    prob.run_driver()
+    print(prob['Fuselage.DoubleSymmetricBeamInterface.cs'])
+    pass
+
+
 def test_rect_lean_beam_dynamic_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
@@ -930,6 +1048,7 @@ def test_rect_lean_beam_dynamic_computation():
 
     # Solve Model
     prob.run_model()
+
     # prob.check_partials(method='cs', compact_print=True, form='central')
 
     # Gather data:

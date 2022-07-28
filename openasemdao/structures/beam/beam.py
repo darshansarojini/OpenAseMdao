@@ -2,7 +2,7 @@ import openmdao.api as om
 from abc import ABC, abstractmethod
 from openasemdao.structures.utils.utils import calculate_th0, CalcNodalT
 from casadi import *
-from openasemdao.structures.beam.constraints import StrengthAggregatedConstraint
+from openasemdao.structures.beam.constraints import StrengthAggregatedConstraint, SpecificStrengthAggregatedConstraint
 from openasemdao.structures.utils.beam_categories import BeamCS, BoundaryType, SectionType
 
 
@@ -33,7 +33,10 @@ class BeamInterface(om.ExplicitComponent):
         self.add_input('cs', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
         self.add_output('cs_out', shape=self.options['beam_shape'].value * self.options['num_DvCs'])
         self.add_output('mass', shape=1)
-        self.add_output('corner_points', shape=(self.symbolic_functions['corner_points'].size_out(0)[0], self.symbolic_functions['corner_points'].size_out(0)[1]))
+        self.add_output('corner_points', shape=(self.symbolic_functions['corner_points'].size_out(0)[0] * self.symbolic_functions['corner_points'].size_out(0)[1]))
+
+        self.declare_partials('cs_out', 'cs')
+        self.declare_partials('mass', 'cs')
 
         # Symbolic numerical channels:
         if self.options['debug_flag']:
@@ -45,7 +48,6 @@ class BeamInterface(om.ExplicitComponent):
             self.add_output('Einv', shape=(self.options['num_divisions'], 3, 3))
             self.add_output('E', shape=(self.options['num_divisions'], 3, 3))
             self.add_output('EA', shape=self.options['num_divisions'])
-
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
 
@@ -75,11 +77,15 @@ class BeamInterface(om.ExplicitComponent):
                     outputs['Einv'][i] = Einv_num[i].full()
                     outputs['oneover'][i] = oneover_num[i].full()
 
-        total_mass = self.symbolic_functions['mass'](cs_num, self.options['delta_s0'])
         stress_recovery_points = self.symbolic_functions['corner_points'](cs_num)
 
+        total_mass = self.symbolic_functions['mass'](cs_num)
         outputs['mass'] = total_mass.full()
-        outputs['corner_points'] = stress_recovery_points.full()
+        outputs['corner_points'] = np.reshape(stress_recovery_points.full(), (self.symbolic_functions['corner_points'].size_out(0)[0] * self.symbolic_functions['corner_points'].size_out(0)[1]))
+
+    def compute_partials(self, inputs, partials, discrete_inputs=None):
+        partials['cs_out', 'cs'] = np.eye(self.options['beam_shape'].value * self.options['num_DvCs'])
+        partials['mass', 'cs'] = self.symbolic_functions['d_mass'](inputs['cs']).full()
 
 
 class StaticStateOutput(om.ExplicitComponent):
@@ -609,7 +615,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             # Check if we have a stress constraint that is related to the stress model:
             if len(self.options["constraints"]) > 0:
                 for a_constraint in self.options["constraints"]:
-                    if isinstance(a_constraint, StrengthAggregatedConstraint):
+                    if isinstance(a_constraint, StrengthAggregatedConstraint) or isinstance(a_constraint, SpecificStrengthAggregatedConstraint):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
                         a_constraint.options["beam_shape"] = self.options["beam_shape"]
                         a_constraint.options['num_DvCs'] = self.options["num_DvCs"]
@@ -727,26 +733,18 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         delta_r_CG = np.zeros([self.options['num_divisions'] - 1, 3])
         # endregion
 
-        self.create_symbolic_expressions(n=n,
-                                         n_ea=n_ea, n_ta=n_ta, c_ta=c_ta, c_ea=c_ea,
-                                         GKc=GKc, GKn=GKn, EA=EA,
-                                         mu=mu,
-                                         delta_r_CG=delta_r_CG,
-                                         EIxx=EIxx, EIzz=EIzz, EIxz=EIxz, GJ=GJ)
+        self.create_symbolic_expressions(n=n,  n_ea=n_ea, n_ta=n_ta, c_ta=c_ta, c_ea=c_ea, GKc=GKc, GKn=GKn, EA=EA, mu=mu, delta_r_CG=delta_r_CG, EIxx=EIxx, EIzz=EIzz, EIxz=EIxz, GJ=GJ)
 
         self.symbolic_functions['D'] = Function(self.options['name'] + "D", [cs], self.symbolic_expressions['D'])
-        self.symbolic_functions['oneover'] = Function(self.options['name'] + "oneover", [cs],
-                                                      self.symbolic_expressions['oneover'])
+        self.symbolic_functions['oneover'] = Function(self.options['name'] + "oneover", [cs], self.symbolic_expressions['oneover'])
         self.symbolic_functions['mu'] = Function(self.options['name'] + "mu", [cs], [self.symbolic_expressions['mu']])
-        self.symbolic_functions['i_matrix'] = Function(self.options['name'] + "i_matrix", [cs],
-                                                       self.symbolic_expressions['i_matrix'])
-        self.symbolic_functions['delta_r_CG_tilde'] = Function(self.options['name'] + "mu", [cs],
-                                                               self.symbolic_expressions['delta_r_CG_tilde'])
-        self.symbolic_functions['Einv'] = Function(self.options['name'] + "Einv", [cs],
-                                                   self.symbolic_expressions['Einv'])
+        self.symbolic_functions['i_matrix'] = Function(self.options['name'] + "i_matrix", [cs], self.symbolic_expressions['i_matrix'])
+        self.symbolic_functions['delta_r_CG_tilde'] = Function(self.options['name'] + "mu", [cs], self.symbolic_expressions['delta_r_CG_tilde'])
+        self.symbolic_functions['Einv'] = Function(self.options['name'] + "Einv", [cs], self.symbolic_expressions['Einv'])
 
-        self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs],
-                                                   [self.symbolic_expressions['corner_points']])
+        d_corner_points = jacobian(self.symbolic_expressions['corner_points'], cs)
+        self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs], [self.symbolic_expressions['corner_points']])
+        self.symbolic_functions['d_corner_points'] = Function(self.options['name'] + "d_stress_rec", [cs], [d_corner_points])
         self.create_mass_function()
         return
 
@@ -763,12 +761,11 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         return
 
     def create_mass_function(self):
-        SCALE_FACT = 100000
         n = self.options['num_divisions']
         cs = self.symbolic_expressions['cs']
         h = self.symbolic_expressions['h']
         w = self.symbolic_expressions['w']
-        s_0 = SX.sym(self.options['name'] + 's_0', n - 1)
+        s_0 = self.options['delta_s0']
 
         A = h * w
 
@@ -779,10 +776,11 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
             A2 = A[i + 1]
             mu[i] = self.options['rho'] * (1 / 3) * (A1 + A2 + sqrt(A1 * A2))
 
-        self.symbolic_expressions['total_mass'] = sum1(mu * s_0) / SCALE_FACT
-        self.symbolic_functions['mass'] = Function('mass', [cs, s_0], [self.symbolic_expressions['total_mass']])
-        self.symbolic_expressions['mass_jac'] = jacobian(self.symbolic_expressions['total_mass'], cs)
-        self.symbolic_functions['mass_jac'] = Function('mass_jac', [cs, s_0], [self.symbolic_expressions['mass_jac']])
+        self.symbolic_expressions['total_mass'] = sum1(mu * s_0)
+
+        self.symbolic_functions['mass'] = Function('mass', [cs], [self.symbolic_expressions['total_mass']])
+        self.symbolic_expressions['d_mass'] = jacobian(self.symbolic_expressions['total_mass'], cs)
+        self.symbolic_functions['d_mass'] = Function('d_mass', [cs], [self.symbolic_expressions['d_mass']])
 
 
 class BoxBeamRepresentation(SymbolicBeam):
@@ -830,7 +828,7 @@ class BoxBeamRepresentation(SymbolicBeam):
             # Check if we have a stress constraint that is related to the stress model:
             if len(self.options["constraints"]) > 0:
                 for a_constraint in self.options["constraints"]:
-                    if isinstance(a_constraint, StrengthAggregatedConstraint):
+                    if isinstance(a_constraint, StrengthAggregatedConstraint) or isinstance(a_constraint, SpecificStrengthAggregatedConstraint):
                         a_constraint.options["num_divisions"] = self.options["num_divisions"]
                         a_constraint.options['num_DvCs'] = self.options["num_DvCs"]
                         a_constraint.options["beam_shape"] = self.options["beam_shape"]
@@ -1165,5 +1163,5 @@ class BoxBeamRepresentation(SymbolicBeam):
         # TODO: Look at why 2*scale gives proper weight
         self.symbolic_expressions['total_mass'] = sum_mu / SCALE_FACT
         self.symbolic_functions['mass'] = Function('mass', [cs, s_0], [self.symbolic_expressions['total_mass']])
-        self.symbolic_expressions['mass_jac'] = jacobian(self.symbolic_expressions['total_mass'], cs)
-        self.symbolic_functions['mass_jac'] = Function('mass_jac', [cs, s_0], [self.symbolic_expressions['mass_jac']])
+        self.symbolic_expressions['d_mass'] = jacobian(self.symbolic_expressions['total_mass'], cs)
+        self.symbolic_functions['d_mass'] = Function('d_mass', [cs, s_0], [self.symbolic_expressions['d_mass']])

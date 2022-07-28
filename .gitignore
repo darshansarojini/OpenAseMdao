@@ -4,3 +4,4 @@
 *.pyc
 results/*
 openasemdao.egg-info/*
+*.html
