@@ -1142,8 +1142,9 @@ class BoxBeamRepresentation(SymbolicBeam):
 
         self.symbolic_functions['EA'] = Function("EA", [cs], [EA])
 
-        self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs],
-                                                   [self.symbolic_expressions['corner_points']])
+        d_corner_points = jacobian(transpose(self.symbolic_expressions['corner_points']), cs)
+        self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs], [self.symbolic_expressions['corner_points']])
+        self.symbolic_functions['d_corner_points'] = Function(self.options['name'] + "d_stress_rec", [cs], [d_corner_points])
 
         self.create_mass_function()
         return

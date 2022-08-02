@@ -967,6 +967,143 @@ def test_lean_rect_beam_optimization():
     pass
 
 
+def test_lean_box_beam_optimization():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 15
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+
+    L = 20
+
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    Load = 1e6 # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    joints = []
+
+    # Some constraint
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse", debug_flag=False)
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+
+    fuselage = BoxBeamRepresentation(beam_definition=fuse_beam, applied_loads=loads, joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+
+    # # Add the stress definition to the general model
+    model.add_subsystem('FuselageBoxBeamStressModel', fuselage.options['stress_definition'])
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint) or isinstance(a_constraint, SpecificStrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageBoxBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageBoxBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageBoxBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+
+    # Setting up connections:
+    model.connect('Fuselage.BoxBeamInterface.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'FuselageBoxBeamStressModel.x')
+
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.BoxBeamInterface.cs_out', 'FuselageBoxBeamStressModel.cs')
+    model.connect('Fuselage.BoxBeamInterface.corner_points', 'FuselageBoxBeamStressModel.corner_points')
+
+    model.options['assembled_jac_type'] = 'csc'
+
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.003 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.003 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.003 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.003 * np.ones((1, n_sections_before_joints_loads))
+
+    lb = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 1.5 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 1.5 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.25 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.25 * np.ones((1, n_sections_before_joints_loads))
+
+    ub = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    model.add_design_var('Fuselage.BoxBeamInterface.cs', lower=lb, upper=ub)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_axial', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_axial_n', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_tau_side', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_tau_side_n', upper=0.0)
+
+    model.add_objective('Fuselage.BoxBeamInterface.mass', scaler=1/1300000)
+    # 1300000 axial 900000 vm
+    prob = om.Problem(model)
+
+    prob.driver = om.ScipyOptimizeDriver()
+    prob.driver.options['optimizer'] = 'SLSQP'
+    prob.driver.options['tol'] = 3e-6
+    prob.driver.options['disp'] = True
+    prob.driver.options['maxiter'] = 500
+
+    prob.setup()
+
+    om.n2(prob)
+
+    # Input design variables
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.15 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.15 * np.ones((1, n_sections_before_joints_loads))
+
+    cs = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    prob.set_val('Fuselage.BoxBeamInterface.cs', cs)
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+    prob.run_driver()
+    print('State of cross-sections:')
+    print(prob['Fuselage.BoxBeamInterface.cs'])
+    print('State of mass:')
+    print(prob['Fuselage.BoxBeamInterface.mass'])
+    print('State of Constraints:')
+    print(prob[fuselage.options['constraints'][0].options["name"] + '.c_axial'])
+    print(prob[fuselage.options['constraints'][0].options["name"] + '.c_axial_n'])
+    print(prob[fuselage.options['constraints'][0].options["name"] + '.c_vm'])
+    print(prob[fuselage.options['constraints'][0].options["name"] + '.c_tau_side'])
+    print(prob[fuselage.options['constraints'][0].options["name"] + '.c_tau_side_n'])
+
+
 def test_rect_lean_beam_dynamic_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
@@ -1320,9 +1457,6 @@ def test_t_beam_lean_computation():
 
 
 def test_t_beam_lean_optimization():
-    # importing matplotlib package
-    import matplotlib.pyplot as plt
-
     model = om.Group()
     # Generate a sequence of points for the beam
     n_sections_before_joints_loads = 8
@@ -1536,6 +1670,297 @@ def test_t_beam_lean_optimization():
     print(cs_rht)
     print('Left Tail Beam Cross-section:')
     print(cs_lht)
+
+
+def test_tbox_beam_lean_optimization():
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 8
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L = 20
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    Load = 5e5  # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    # Test joints for the geometry
+    joints = []
+    eta4 = 0.95
+    joint1 = JointDefinition('Fuse_to_RHT', 'Fuselage', eta4, 'FuseRHT', 0.0)
+    joints.append(joint1)
+    joint2 = JointDefinition('Fuse_to_LHT', 'Fuselage', eta4, 'FuseLHT', 0.0)
+    joints.append(joint2)
+
+    joint_rhs = []
+    joint_rhs.append(joint1)
+
+    joint_lhs = []
+    joint_lhs.append(joint2)
+
+    # RHS Wing
+    n_sections_before_joints_loads = 7
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 5.0
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    RHS_beam = BeamDefinition('FuseRHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'), G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
+
+    # LHS Wing
+
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 5.0
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, -L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    LHS_beam = BeamDefinition('FuseLHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'), G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
+
+    # Some constraint
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint_2 = StrengthAggregatedConstraint(name="basic_constraint_rht")
+    str_constraint_3 = StrengthAggregatedConstraint(name="basic_constraint_lht")
+
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+    stress_model_2 = EulerBernoulliStressModel(name='EBRectangular_rht')
+    stress_model_3 = EulerBernoulliStressModel(name='EBRectangular_lht')
+
+    # Adding Joints to the stickmodel group
+
+    fuselage = BoxBeamRepresentation(beam_definition=fuse_beam, applied_loads=[], joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    RHS_tail = BoxBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint_2], stress_definition=stress_model_2,
+                                                     num_interp_sections=0)
+
+    LHS_tail = BoxBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint_3], stress_definition=stress_model_3,
+                                                     num_interp_sections=0)
+
+    TotalMass = MassCombiner(name="TBeamCombiner", num_beams=3)
+
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
+    input_fuser = StickModelFeeder(beam_list=[fuselage, RHS_tail, LHS_tail])
+
+    input_return = StickModelDemultiplexer(beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
+    model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+    model.add_subsystem(name='TBeamCombiner', subsys=TotalMass)
+    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+    model.add_subsystem(name='outputStickmodel', subsys=input_return)
+
+    # Setting up connections:
+    model.connect('Fuselage.BoxBeamInterface.cs_out', 'inputStickmodel.cs_0')
+    model.connect('FuseRHT.BoxBeamInterface.cs_out', 'inputStickmodel.cs_1')
+    model.connect('FuseLHT.BoxBeamInterface.cs_out', 'inputStickmodel.cs_2')
+
+    model.connect('Fuselage.BoxBeamInterface.mass', 'TBeamCombiner.mass_0')
+    model.connect('FuseRHT.BoxBeamInterface.mass', 'TBeamCombiner.mass_1')
+    model.connect('FuseLHT.BoxBeamInterface.mass', 'TBeamCombiner.mass_2')
+
+    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+
+    # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.BoxBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('Fuselage.BoxBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseRHTDoubleSymmetricBeamStressModel', RHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(RHS_tail.options['constraints']) > 0:
+        for a_constraint in RHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseRHT.BoxBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseRHT.BoxBeamInterface.corner_points', 'FuseRHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_1', 'FuseRHTDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseLHTDoubleSymmetricBeamStressModel', LHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(LHS_tail.options['constraints']) > 0:
+        for a_constraint in LHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseLHT.BoxBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseLHT.BoxBeamInterface.corner_points', 'FuseLHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_2', 'FuseLHTDoubleSymmetricBeamStressModel.x')
+
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
+    w = 3 * np.ones((1, n_sections_before_joints_loads+1))
+
+    t_left = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
+    t_top = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
+
+    t_right = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
+    t_bot = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
+
+    lb_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
+    w = 3 * np.ones((1, n_sections_before_joints_loads+1))
+
+    t_left = 1.5 * np.ones((1, n_sections_before_joints_loads+1))
+    t_top = 0.25 * np.ones((1, n_sections_before_joints_loads+1))
+
+    t_right = 1.5 * np.ones((1, n_sections_before_joints_loads+1))
+    t_bot = 0.25 * np.ones((1, n_sections_before_joints_loads+1))
+
+    ub_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.25 * np.ones((1, n_sections_before_joints_loads))
+    w = 1.5 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.002 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.002 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.002 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.002 * np.ones((1, n_sections_before_joints_loads))
+
+    lb = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.25 * np.ones((1, n_sections_before_joints_loads))
+    w = 1.5 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.75 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.125 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.75 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.125 * np.ones((1, n_sections_before_joints_loads))
+
+    ub = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    model.options['assembled_jac_type'] = 'csc'
+
+    model.add_design_var('Fuselage.BoxBeamInterface.cs', lower=lb_fuse, upper=ub_fuse)
+    model.add_design_var('FuseRHT.BoxBeamInterface.cs', lower=lb, upper=ub)
+    model.add_design_var('FuseLHT.BoxBeamInterface.cs', lower=lb, upper=ub)
+
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(RHS_tail.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(LHS_tail.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_objective('TBeamCombiner.total_mass', scaler=1 / 1500000)
+
+    prob = om.Problem(model)
+
+    prob.driver = om.ScipyOptimizeDriver()
+    prob.driver.options['optimizer'] = 'SLSQP'
+    prob.driver.options['tol'] = 9e-7
+    prob.driver.options['disp'] = True
+    prob.driver.options['maxiter'] = 500
+
+    prob.setup()
+
+    om.n2(prob)
+
+    # Set some initial guesses
+
+    # Input design variables
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
+    w = 3 * np.ones((1, n_sections_before_joints_loads+1))
+
+    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads+1))
+    t_top = 0.15 * np.ones((1, n_sections_before_joints_loads+1))
+
+    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads+1))
+    t_bot = 0.15 * np.ones((1, n_sections_before_joints_loads+1))
+
+    cs_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.5 * np.ones((1,n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.15 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.15 * np.ones((1, n_sections_before_joints_loads))
+
+    cs_RHS = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.15 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.15 * np.ones((1, n_sections_before_joints_loads))
+
+    cs_LHS = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    # Input design variables
+    prob.set_val('Fuselage.BoxBeamInterface.cs', cs_fuse)
+    prob.set_val('FuseRHT.BoxBeamInterface.cs', cs_RHS)
+    prob.set_val('FuseLHT.BoxBeamInterface.cs', cs_LHS)
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+    prob.run_driver()
+
+    # Gather data:
+    cs_fuselage = prob.get_val('Fuselage.BoxBeamInterface.cs')
+    cs_rht = prob.get_val('FuseRHT.BoxBeamInterface.cs')
+    cs_lht = prob.get_val('FuseLHT.BoxBeamInterface.cs')
+
+    print('Fuselage Cross-section:')
+    print(cs_fuselage)
+    print('Right Tail Beam Cross-section:')
+    print(cs_rht)
+    print('Left Tail Beam Cross-section:')
+    print(cs_lht)
+    print('Fuselage Mass')
+    print(prob.get_val('Fuselage.BoxBeamInterface.mass'))
+    print('RHT Mass')
+    print(prob.get_val('FuseRHT.BoxBeamInterface.mass'))
+    print('LHT Mass')
+    print(prob.get_val('FuseLHT.BoxBeamInterface.mass'))
+
 
 def test_dynamic_t_beam_lean_computation():
     # importing matplotlib package
