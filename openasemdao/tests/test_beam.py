@@ -1,4 +1,4 @@
-from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentation, BoxBeamRepresentation
+from openasemdao.structures.beam.beam import StaticDoublySymRectBeamRepresentation, BoxBeamRepresentation, MassCombiner
 from openasemdao.structures.inputs.inputs import BeamDefinition, PointLoadDefinition, JointDefinition
 from openasemdao.structures.utils.utils import unique
 import openmdao.api as om
@@ -822,6 +822,8 @@ def test_lean_rect_beam_computation():
 
     prob.run_model()
 
+    prob.check_partials(method='cs', compact_print=True, form='central')
+
     # Gather data:
     x_fuselage = prob.get_val('Tstickmodel.x')
 
@@ -1049,7 +1051,7 @@ def test_rect_lean_beam_dynamic_computation():
     # Solve Model
     prob.run_model()
 
-    # prob.check_partials(method='cs', compact_print=True, form='central')
+    prob.check_partials(method='cs', compact_print=True, form='central')
 
     # Gather data:
     x_fuselage = prob.get_val('Tstickmodel.x')
@@ -1317,6 +1319,224 @@ def test_t_beam_lean_computation():
     np.testing.assert_almost_equal(joint_deflection, actual_deflection, decimal=2)
 
 
+def test_t_beam_lean_optimization():
+    # importing matplotlib package
+    import matplotlib.pyplot as plt
+
+    model = om.Group()
+    # Generate a sequence of points for the beam
+    n_sections_before_joints_loads = 8
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L = 20
+    beam_points[0, :] = np.linspace(0, L, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    fuse_beam = BeamDefinition('Fuselage', beam_point_input, np.array([3, 1, 2]), E=Q_(69e9, 'pascal'),
+                               G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.CANTILEVER)
+
+    # Test loads for the geometry
+    loads = []
+    label1 = 'load1'
+    Load = 5e5  # Newton
+    f1 = Q_(np.array([0, 0, Load]), 'newton')
+    m1 = Q_(np.array([0, 0, 0]), 'newton*meter')
+    eta1 = 1.0
+    load1 = PointLoadDefinition(label1, eta1, f1, m1)
+    loads.append(load1)
+
+    # Test joints for the geometry
+    joints = []
+    eta4 = 0.95
+    joint1 = JointDefinition('Fuse_to_RHT', 'Fuselage', eta4, 'FuseRHT', 0.0)
+    joints.append(joint1)
+    joint2 = JointDefinition('Fuse_to_LHT', 'Fuselage', eta4, 'FuseLHT', 0.0)
+    joints.append(joint2)
+
+    joint_rhs = []
+    joint_rhs.append(joint1)
+
+    joint_lhs = []
+    joint_lhs.append(joint2)
+
+    # RHS Wing
+    n_sections_before_joints_loads = 7
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 5.0
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    RHS_beam = BeamDefinition('FuseRHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'), G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
+
+    # LHS Wing
+
+    beam_points = np.zeros((3, n_sections_before_joints_loads))
+    L_tail = 5.0
+    beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
+    beam_points[1, :] = np.linspace(0, -L_tail, n_sections_before_joints_loads)
+    beam_point_input = Q_(beam_points, 'meter')
+
+    LHS_beam = BeamDefinition('FuseLHT', beam_point_input, np.array([1, 3, 2]), E=Q_(69e9, 'pascal'), G=Q_(1e20, 'pascal'), rho=Q_(2700., 'kg/meter**3'), sigmaY=Q_(176e6, 'pascal'), num_timesteps=1, bc=BoundaryType.FREEFREE)
+
+    # Some constraint
+    str_constraint = StrengthAggregatedConstraint(name="basic_constraint_fuse")
+    str_constraint_2 = StrengthAggregatedConstraint(name="basic_constraint_rht")
+    str_constraint_3 = StrengthAggregatedConstraint(name="basic_constraint_lht")
+
+    # EB stress model
+    stress_model = EulerBernoulliStressModel(name='EBRectangular_fuse')
+    stress_model_2 = EulerBernoulliStressModel(name='EBRectangular_rht')
+    stress_model_3 = EulerBernoulliStressModel(name='EBRectangular_lht')
+
+    # Adding Joints to the stickmodel group
+
+    fuselage = StaticDoublySymRectBeamRepresentation(beam_definition=fuse_beam, applied_loads=[], joints=joints, constraints=[str_constraint], stress_definition=stress_model,
+                                                     num_interp_sections=0)
+
+    RHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=RHS_beam, applied_loads=loads, joints=joint_rhs, constraints=[str_constraint_2], stress_definition=stress_model_2,
+                                                     num_interp_sections=0)
+
+    LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint_3], stress_definition=stress_model_3,
+                                                     num_interp_sections=0)
+
+    TotalMass = MassCombiner(name="TBeamCombiner", num_beams=3)
+
+    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
+    input_fuser = StickModelFeeder(beam_list=[fuselage, RHS_tail, LHS_tail])
+
+    input_return = StickModelDemultiplexer(beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+
+    model.add_subsystem(name='Fuselage', subsys=fuselage)
+    model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
+    model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+    model.add_subsystem(name='TBeamCombiner', subsys=TotalMass)
+    model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
+    model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
+    model.add_subsystem(name='outputStickmodel', subsys=input_return)
+
+    # Setting up connections:
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_1')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_2')
+
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.mass', 'TBeamCombiner.mass_0')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.mass', 'TBeamCombiner.mass_1')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.mass', 'TBeamCombiner.mass_2')
+
+    model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
+    model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
+
+    # Add the stress definition to the general model
+    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+
+    # Add the constraint:
+    if len(fuselage.options['constraints']) > 0:
+        for a_constraint in fuselage.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
+
+    # Connect the stress model with the beam interface
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseRHTDoubleSymmetricBeamStressModel', RHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(RHS_tail.options['constraints']) > 0:
+        for a_constraint in RHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.corner_points', 'FuseRHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_1', 'FuseRHTDoubleSymmetricBeamStressModel.x')
+
+    model.add_subsystem('FuseLHTDoubleSymmetricBeamStressModel', LHS_tail.options['stress_definition'])
+
+    # Add the constraint:
+    if len(LHS_tail.options['constraints']) > 0:
+        for a_constraint in LHS_tail.options['constraints']:
+            if isinstance(a_constraint, StrengthAggregatedConstraint):
+                model.add_subsystem(a_constraint.options["name"], a_constraint)
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_max_c', a_constraint.options["name"] + '.tau_max_c')
+                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_max_n', a_constraint.options["name"] + '.tau_max_n')
+
+    # Connect the stress model with the beam interface
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.corner_points', 'FuseLHTDoubleSymmetricBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_2', 'FuseLHTDoubleSymmetricBeamStressModel.x')
+
+    lb = 0.15
+    ub = 2.0
+
+    model.options['assembled_jac_type'] = 'csc'
+
+    model.add_design_var('Fuselage.DoubleSymmetricBeamInterface.cs', lower=lb, upper=ub)
+    model.add_design_var('FuseRHT.DoubleSymmetricBeamInterface.cs', lower=lb, upper=ub)
+    model.add_design_var('FuseLHT.DoubleSymmetricBeamInterface.cs', lower=lb, upper=ub)
+
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(RHS_tail.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(LHS_tail.options['constraints'][0].options["name"] + '.c_vm', upper=0.0)
+    model.add_constraint(fuselage.options['constraints'][0].options["name"] + '.c_axial', upper=0.0)
+    model.add_constraint(RHS_tail.options['constraints'][0].options["name"] + '.c_axial', upper=0.0)
+    model.add_constraint(LHS_tail.options['constraints'][0].options["name"] + '.c_axial', upper=0.0)
+
+    model.add_objective('TBeamCombiner.total_mass', scaler=1 / 1500000)
+
+    prob = om.Problem(model)
+
+    prob.driver = om.ScipyOptimizeDriver()
+    prob.driver.options['optimizer'] = 'SLSQP'
+    prob.driver.options['tol'] = 3e-6
+    prob.driver.options['disp'] = True
+    prob.driver.options['maxiter'] = 500
+
+    prob.setup()
+
+    om.n2(prob)
+
+    # Set some initial guesses
+
+    # Input design variables
+    prob.set_val('Fuselage.DoubleSymmetricBeamInterface.cs', 0.5 * np.ones((fuselage.options['beam_shape'].value * fuselage.options['num_DvCs'])))
+    prob.set_val('FuseRHT.DoubleSymmetricBeamInterface.cs', 0.5 * np.ones((RHS_tail.options['beam_shape'].value * RHS_tail.options['num_DvCs'])))
+    prob.set_val('FuseLHT.DoubleSymmetricBeamInterface.cs', 0.5 * np.ones((LHS_tail.options['beam_shape'].value * LHS_tail.options['num_DvCs'])))
+
+    prob.set_val('Tstickmodel.Xac', np.zeros(18))
+    prob.set_val('Tstickmodel.forces_dist', np.zeros(3 * T_stickmodel.beam_reference['forces_dist'].shape[1]))
+    prob.set_val('Tstickmodel.moments_dist', np.zeros(3 * T_stickmodel.beam_reference['moments_dist'].shape[1]))
+    prob.set_val('Tstickmodel.forces_conc', np.zeros(3 * T_stickmodel.beam_reference['forces_conc'].shape[1]))
+    prob.set_val('Tstickmodel.moments_conc', np.zeros(3 * T_stickmodel.beam_reference['moments_conc'].shape[1]))
+
+    # Solve Model
+    prob.run_driver()
+
+    # Gather data:
+    cs_fuselage = prob.get_val('Fuselage.DoubleSymmetricBeamInterface.cs')
+    cs_rht = prob.get_val('FuseRHT.DoubleSymmetricBeamInterface.cs')
+    cs_lht = prob.get_val('FuseLHT.DoubleSymmetricBeamInterface.cs')
+
+    print('Fuselage Cross-section:')
+    print(cs_fuselage)
+    print('Right Tail Beam Cross-section:')
+    print(cs_rht)
+    print('Left Tail Beam Cross-section:')
+    print(cs_lht)
+
 def test_dynamic_t_beam_lean_computation():
     # importing matplotlib package
     import matplotlib.pyplot as plt
@@ -1406,6 +1626,8 @@ def test_dynamic_t_beam_lean_computation():
     LHS_tail = StaticDoublySymRectBeamRepresentation(beam_definition=LHS_beam, applied_loads=loads, joints=joint_lhs, constraints=[str_constraint_3], stress_definition=stress_model_3,
                                                      num_interp_sections=0)
 
+    TotalMass = MassCombiner(name="TBeamCombiner", num_beams=3)
+
     T_stickmodel = BeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints, t_initial=t_initial, t_final=t_final, time_step=time_step,
                                   load_function=t_beam_sinusoidal_load, t_gamma=0.0, t_epsilon=0.0)
 
@@ -1416,6 +1638,7 @@ def test_dynamic_t_beam_lean_computation():
     model.add_subsystem(name='Fuselage', subsys=fuselage)
     model.add_subsystem(name='FuseRHT', subsys=RHS_tail)
     model.add_subsystem(name='FuseLHT', subsys=LHS_tail)
+    model.add_subsystem(name='TBeamCombiner', subsys=TotalMass)
     model.add_subsystem(name='inputStickmodel', subsys=input_fuser)
     model.add_subsystem(name='Tstickmodel', subsys=T_stickmodel)
     model.add_subsystem(name='outputStickmodel', subsys=input_return)
@@ -1424,6 +1647,11 @@ def test_dynamic_t_beam_lean_computation():
     model.connect('Fuselage.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_0')
     model.connect('FuseRHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_1')
     model.connect('FuseLHT.DoubleSymmetricBeamInterface.cs_out', 'inputStickmodel.cs_2')
+
+    model.connect('Fuselage.DoubleSymmetricBeamInterface.mass', 'TBeamCombiner.mass_0')
+    model.connect('FuseRHT.DoubleSymmetricBeamInterface.mass', 'TBeamCombiner.mass_1')
+    model.connect('FuseLHT.DoubleSymmetricBeamInterface.mass', 'TBeamCombiner.mass_2')
+
     model.connect('inputStickmodel.cs_out', 'Tstickmodel.cs')
     model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
 
@@ -1523,6 +1751,7 @@ def test_dynamic_t_beam_lean_computation():
     ax11.grid(True)
 
     plt.show()
+
 
 
 def t_beam_sinusoidal_load(x, xDot, Xac, forces_dist, moments_dist, forces_conc, moments_conc, time_step, i):

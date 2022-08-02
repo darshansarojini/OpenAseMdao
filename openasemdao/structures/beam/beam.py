@@ -25,8 +25,6 @@ class BeamInterface(om.ExplicitComponent):
     def setup(self):
         self.symbolic_functions = self.options['symbolic_parent']
 
-        # self.symbolic_functions['corner_points']
-
         self.options['num_divisions'] = self.symbolic_functions['mu'].size_out(0)[0] + 1
 
         # Traditional input outputs:
@@ -37,6 +35,7 @@ class BeamInterface(om.ExplicitComponent):
 
         self.declare_partials('cs_out', 'cs')
         self.declare_partials('mass', 'cs')
+        self.declare_partials('corner_points', 'cs')
 
         # Symbolic numerical channels:
         if self.options['debug_flag']:
@@ -86,6 +85,31 @@ class BeamInterface(om.ExplicitComponent):
     def compute_partials(self, inputs, partials, discrete_inputs=None):
         partials['cs_out', 'cs'] = np.eye(self.options['beam_shape'].value * self.options['num_DvCs'])
         partials['mass', 'cs'] = self.symbolic_functions['d_mass'](inputs['cs']).full()
+        partials['corner_points', 'cs'] = self.symbolic_functions['d_corner_points'](inputs['cs']).full()
+
+
+class MassCombiner(om.ExplicitComponent):
+    def initialize(self):
+        self.options.declare('name', types=str)  # Name of the beam mass combiner
+        self.options.declare('num_beams', types=int) # Number of beams in the stickmodel
+
+    def setup(self):
+        for i in range(self.options['num_beams']):
+            self.add_input('mass_'+str(i))
+        self.add_output('total_mass')
+
+        for i in range(self.options['num_beams']):
+            self.declare_partials('total_mass', 'mass_'+str(i))
+
+    def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
+        mass = 0
+        for i in range(self.options['num_beams']):
+            mass += inputs['mass_'+str(i)]
+        outputs['total_mass'] = mass
+
+    def compute_partials(self, inputs, partials, discrete_inputs=None):
+        for i in range(self.options['num_beams']):
+            partials['total_mass', 'mass_'+str(i)] = 1
 
 
 class StaticStateOutput(om.ExplicitComponent):
@@ -742,7 +766,7 @@ class StaticDoublySymRectBeamRepresentation(SymbolicBeam):
         self.symbolic_functions['delta_r_CG_tilde'] = Function(self.options['name'] + "mu", [cs], self.symbolic_expressions['delta_r_CG_tilde'])
         self.symbolic_functions['Einv'] = Function(self.options['name'] + "Einv", [cs], self.symbolic_expressions['Einv'])
 
-        d_corner_points = jacobian(self.symbolic_expressions['corner_points'], cs)
+        d_corner_points = jacobian(transpose(self.symbolic_expressions['corner_points']), cs)
         self.symbolic_functions['corner_points'] = Function(self.options['name'] + "stress_rec", [cs], [self.symbolic_expressions['corner_points']])
         self.symbolic_functions['d_corner_points'] = Function(self.options['name'] + "d_stress_rec", [cs], [d_corner_points])
         self.create_mass_function()
@@ -1137,8 +1161,6 @@ class BoxBeamRepresentation(SymbolicBeam):
         return
 
     def create_mass_function(self):
-        SCALE_FACT = 100000
-
         cs = self.symbolic_expressions['cs']
 
         h = self.symbolic_expressions['h']
@@ -1150,7 +1172,7 @@ class BoxBeamRepresentation(SymbolicBeam):
 
         n_nodes = self.options['num_divisions']
 
-        s_0 = SX.sym('s_0', n_nodes - 1)
+        s_0 = self.options['delta_s0']
 
         mu = SX.sym('mu', n_nodes - 1)
 
@@ -1160,8 +1182,8 @@ class BoxBeamRepresentation(SymbolicBeam):
             A2 = (w[i + 1] * h[i + 1] - ((w[i + 1] - t_right[i + 1] - t_left[i + 1]) * (h[i + 1] - t_top[i + 1] - t_bot[i + 1])))
             mu[i] = s_0[i] * self.options['rho'] * (1 / 3) * (A1 + A2 + sqrt(A1 * A2))
             sum_mu = sum_mu + mu[i]
-        # TODO: Look at why 2*scale gives proper weight
-        self.symbolic_expressions['total_mass'] = sum_mu / SCALE_FACT
-        self.symbolic_functions['mass'] = Function('mass', [cs, s_0], [self.symbolic_expressions['total_mass']])
+
+        self.symbolic_expressions['total_mass'] = sum_mu
+        self.symbolic_functions['mass'] = Function('mass', [cs], [self.symbolic_expressions['total_mass']])
         self.symbolic_expressions['d_mass'] = jacobian(self.symbolic_expressions['total_mass'], cs)
-        self.symbolic_functions['d_mass'] = Function('d_mass', [cs, s_0], [self.symbolic_expressions['d_mass']])
+        self.symbolic_functions['d_mass'] = Function('d_mass', [cs], [self.symbolic_expressions['d_mass']])
