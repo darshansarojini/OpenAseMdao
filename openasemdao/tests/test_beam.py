@@ -1670,6 +1670,12 @@ def test_t_beam_lean_optimization():
     print(cs_rht)
     print('Left Tail Beam Cross-section:')
     print(cs_lht)
+    print('Fuselage Mass')
+    print(prob.get_val('Fuselage.DoubleSymmetricBeamInterface.mass'))
+    print('RHT Mass')
+    print(prob.get_val('FuseRHT.DoubleSymmetricBeamInterface.mass'))
+    print('LHT Mass')
+    print(prob.get_val('FuseLHT.DoubleSymmetricBeamInterface.mass'))
 
 
 def test_tbox_beam_lean_optimization():
@@ -1778,53 +1784,53 @@ def test_tbox_beam_lean_optimization():
     model.connect('Tstickmodel.x', 'outputStickmodel.x_in')
 
     # Add the stress definition to the general model
-    model.add_subsystem('FuselageDoubleSymmetricBeamStressModel', fuselage.options['stress_definition'])
+    model.add_subsystem('BoxBeamStressModel', fuselage.options['stress_definition'])
 
     # Add the constraint:
     if len(fuselage.options['constraints']) > 0:
         for a_constraint in fuselage.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
-                model.connect('FuselageDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
-                model.connect('FuselageDoubleSymmetricBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+                model.connect('BoxBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('BoxBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('BoxBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
 
     # Connect the stress model with the beam interface
-    model.connect('Fuselage.BoxBeamInterface.cs_out', 'FuselageDoubleSymmetricBeamStressModel.cs')
-    model.connect('Fuselage.BoxBeamInterface.corner_points', 'FuselageDoubleSymmetricBeamStressModel.corner_points')
-    model.connect('outputStickmodel.x_0', 'FuselageDoubleSymmetricBeamStressModel.x')
+    model.connect('Fuselage.BoxBeamInterface.cs_out', 'BoxBeamStressModel.cs')
+    model.connect('Fuselage.BoxBeamInterface.corner_points', 'BoxBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_0', 'BoxBeamStressModel.x')
 
-    model.add_subsystem('FuseRHTDoubleSymmetricBeamStressModel', RHS_tail.options['stress_definition'])
+    model.add_subsystem('FuseRHTBoxBeamStressModel', RHS_tail.options['stress_definition'])
 
     # Add the constraint:
     if len(RHS_tail.options['constraints']) > 0:
         for a_constraint in RHS_tail.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
-                model.connect('FuseRHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
-                model.connect('FuseRHTDoubleSymmetricBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+                model.connect('FuseRHTBoxBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseRHTBoxBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseRHTBoxBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
 
     # Connect the stress model with the beam interface
-    model.connect('FuseRHT.BoxBeamInterface.cs_out', 'FuseRHTDoubleSymmetricBeamStressModel.cs')
-    model.connect('FuseRHT.BoxBeamInterface.corner_points', 'FuseRHTDoubleSymmetricBeamStressModel.corner_points')
-    model.connect('outputStickmodel.x_1', 'FuseRHTDoubleSymmetricBeamStressModel.x')
+    model.connect('FuseRHT.BoxBeamInterface.cs_out', 'FuseRHTBoxBeamStressModel.cs')
+    model.connect('FuseRHT.BoxBeamInterface.corner_points', 'FuseRHTBoxBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_1', 'FuseRHTBoxBeamStressModel.x')
 
-    model.add_subsystem('FuseLHTDoubleSymmetricBeamStressModel', LHS_tail.options['stress_definition'])
+    model.add_subsystem('FuseLHTBoxBeamStressModel', LHS_tail.options['stress_definition'])
 
     # Add the constraint:
     if len(LHS_tail.options['constraints']) > 0:
         for a_constraint in LHS_tail.options['constraints']:
             if isinstance(a_constraint, StrengthAggregatedConstraint):
                 model.add_subsystem(a_constraint.options["name"], a_constraint)
-                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
-                model.connect('FuseLHTDoubleSymmetricBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
-                model.connect('FuseLHTDoubleSymmetricBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
+                model.connect('FuseLHTBoxBeamStressModel.sigma_axial', a_constraint.options["name"] + '.sigma_axial')
+                model.connect('FuseLHTBoxBeamStressModel.sigma_vm', a_constraint.options["name"] + '.sigma_vm')
+                model.connect('FuseLHTBoxBeamStressModel.tau_side', a_constraint.options["name"] + '.tau_side')
 
     # Connect the stress model with the beam interface
-    model.connect('FuseLHT.BoxBeamInterface.cs_out', 'FuseLHTDoubleSymmetricBeamStressModel.cs')
-    model.connect('FuseLHT.BoxBeamInterface.corner_points', 'FuseLHTDoubleSymmetricBeamStressModel.corner_points')
-    model.connect('outputStickmodel.x_2', 'FuseLHTDoubleSymmetricBeamStressModel.x')
+    model.connect('FuseLHT.BoxBeamInterface.cs_out', 'FuseLHTBoxBeamStressModel.cs')
+    model.connect('FuseLHT.BoxBeamInterface.corner_points', 'FuseLHTBoxBeamStressModel.corner_points')
+    model.connect('outputStickmodel.x_2', 'FuseLHTBoxBeamStressModel.x')
 
     h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
     w = 3 * np.ones((1, n_sections_before_joints_loads+1))
@@ -1885,7 +1891,7 @@ def test_tbox_beam_lean_optimization():
 
     prob.driver = om.ScipyOptimizeDriver()
     prob.driver.options['optimizer'] = 'SLSQP'
-    prob.driver.options['tol'] = 9e-7
+    prob.driver.options['tol'] = 8e-7
     prob.driver.options['disp'] = True
     prob.driver.options['maxiter'] = 500
 
