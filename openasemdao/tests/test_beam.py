@@ -1188,7 +1188,7 @@ def test_rect_lean_beam_dynamic_computation():
     # Solve Model
     prob.run_model()
 
-    prob.check_partials(method='cs', compact_print=True, form='central')
+    # prob.check_partials(method='cs', compact_print=True, form='central')
 
     # Gather data:
     x_fuselage = prob.get_val('Tstickmodel.x')
