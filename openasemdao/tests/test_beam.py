@@ -1715,7 +1715,7 @@ def test_tbox_beam_lean_optimization():
     joint_lhs.append(joint2)
 
     # RHS Wing
-    n_sections_before_joints_loads = 7
+    n_sections_before_joints_loads = 8
     beam_points = np.zeros((3, n_sections_before_joints_loads))
     L_tail = 5.0
     beam_points[0, :] = np.linspace(eta4 * L, eta4 * L, n_sections_before_joints_loads)
@@ -1757,7 +1757,7 @@ def test_tbox_beam_lean_optimization():
 
     TotalMass = MassCombiner(name="TBeamCombiner", num_beams=3)
 
-    T_stickmodel = BeamStickModel(load_factor=0.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
+    T_stickmodel = BeamStickModel(load_factor=1.0, beam_list=[fuselage, RHS_tail, LHS_tail], joint_reference=joints)
 
     input_fuser = StickModelFeeder(beam_list=[fuselage, RHS_tail, LHS_tail])
 
@@ -1832,36 +1832,36 @@ def test_tbox_beam_lean_optimization():
     model.connect('FuseLHT.BoxBeamInterface.corner_points', 'FuseLHTBoxBeamStressModel.corner_points')
     model.connect('outputStickmodel.x_2', 'FuseLHTBoxBeamStressModel.x')
 
-    h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
-    w = 3 * np.ones((1, n_sections_before_joints_loads+1))
-
-    t_left = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
-    t_top = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
-
-    t_right = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
-    t_bot = 0.002 * np.ones((1, n_sections_before_joints_loads+1))
-
-    lb_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
-
-    h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
-    w = 3 * np.ones((1, n_sections_before_joints_loads+1))
-
-    t_left = 1.5 * np.ones((1, n_sections_before_joints_loads+1))
-    t_top = 0.25 * np.ones((1, n_sections_before_joints_loads+1))
-
-    t_right = 1.5 * np.ones((1, n_sections_before_joints_loads+1))
-    t_bot = 0.25 * np.ones((1, n_sections_before_joints_loads+1))
-
-    ub_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
-
-    h = 0.25 * np.ones((1, n_sections_before_joints_loads))
-    w = 1.5 * np.ones((1, n_sections_before_joints_loads))
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
 
     t_left = 0.002 * np.ones((1, n_sections_before_joints_loads))
     t_top = 0.002 * np.ones((1, n_sections_before_joints_loads))
 
     t_right = 0.002 * np.ones((1, n_sections_before_joints_loads))
     t_bot = 0.002 * np.ones((1, n_sections_before_joints_loads))
+
+    lb_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 1.5 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.25 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 1.5 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.25 * np.ones((1, n_sections_before_joints_loads))
+
+    ub_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
+
+    h = 0.25 * np.ones((1, n_sections_before_joints_loads))
+    w = 1.5 * np.ones((1, n_sections_before_joints_loads))
+
+    t_left = 0.001 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.001 * np.ones((1, n_sections_before_joints_loads))
+
+    t_right = 0.001 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.001 * np.ones((1, n_sections_before_joints_loads))
 
     lb = np.hstack((h, w, t_left, t_top, t_right, t_bot))
 
@@ -1902,14 +1902,14 @@ def test_tbox_beam_lean_optimization():
     # Set some initial guesses
 
     # Input design variables
-    h = 0.5 * np.ones((1, n_sections_before_joints_loads+1))
-    w = 3 * np.ones((1, n_sections_before_joints_loads+1))
+    h = 0.5 * np.ones((1, n_sections_before_joints_loads))
+    w = 3 * np.ones((1, n_sections_before_joints_loads))
 
-    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads+1))
-    t_top = 0.15 * np.ones((1, n_sections_before_joints_loads+1))
+    t_left = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_top = 0.15 * np.ones((1, n_sections_before_joints_loads))
 
-    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads+1))
-    t_bot = 0.15 * np.ones((1, n_sections_before_joints_loads+1))
+    t_right = 0.1 * np.ones((1, n_sections_before_joints_loads))
+    t_bot = 0.15 * np.ones((1, n_sections_before_joints_loads))
 
     cs_fuse = np.hstack((h, w, t_left, t_top, t_right, t_bot))
 
